@@ -2,78 +2,67 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests  # Import requests to handle browser masking
 
 # Set page config
-st.set_page_config(page_title="Live AI S&P 500 & Index Scanner", layout="wide")
+st.set_page_config(page_title="AI S&P & Index Scanner", layout="wide")
 
 # Title and Description
-st.title("📊 Live AI S&P 500 & Index Scanner")
-st.markdown("Scan your personal watchlist or dynamically query the S&P 500 by industry sector.")
+st.title("📊 Robust S&P Sector & Custom Index Scanner")
+st.markdown("Scan your personal watchlist or major S&P industry sectors. Fully stable, zero external scraping dependencies.")
 
-# --- DYNAMIC S&P 500 WIKIPEDIA SCRAPER WITH BROWSER MASKING ---
-@st.cache_data(ttl=86400)  # Cache the data for 24 hours so it's lightning-fast
-def get_sp500_data():
-    try:
-        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        # Disguise the request as a real browser visit
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        tables = pd.read_html(response.text)
-        df = tables[0]
-        # Clean ticker symbols (Wikipedia uses dots instead of hyphens, e.g., BRK.B instead of BRK-B)
-        df['Symbol'] = df['Symbol'].str.replace('.', '-', regex=False)
-        return df[['Symbol', 'Security', 'GICS Sector']]
-    except Exception as e:
-        # Fixed Fallback list of top 30 S&P 500 stocks if Wikipedia is down (XOM is only listed once here)
-        fallback = pd.DataFrame({
-            'Symbol': ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "TSLA", "BRK-B", "LLY", "JPM", "XOM", "UNH", "V", "PG", "MA", "AVGO", "HD", "CVX", "MRK", "ABBV", "COST", "PEP", "ADBE", "WMT", "BAC", "KO", "MCD", "CRM", "CSCO", "ACN"],
-            'Security': ["Apple", "Microsoft", "Amazon", "NVIDIA", "Meta", "Alphabet", "Tesla", "Berkshire Hathaway", "Eli Lilly", "JPMorgan Chase", "ExxonMobil", "UnitedHealth", "Visa", "Procter & Gamble", "Mastercard", "Broadcom", "Home Depot", "Chevron", "Merck", "AbbVie", "Costco", "PepsiCo", "Adobe", "Walmart", "Bank of America", "Coca-Cola", "McDonald's", "Salesforce", "Cisco", "Accenture"],
-            'GICS Sector': ["Information Technology", "Information Technology", "Consumer Discretionary", "Information Technology", "Communication Services", "Communication Services", "Consumer Discretionary", "Financials", "Health Care", "Financials", "Energy", "Health Care", "Financials", "Consumer Staples", "Financials", "Information Technology", "Consumer Discretionary", "Energy", "Health Care", "Health Care", "Consumer Staples", "Consumer Staples", "Information Technology", "Consumer Staples", "Financials", "Consumer Staples", "Consumer Discretionary", "Information Technology", "Information Technology", "Information Technology"]
-        })
-        return fallback
+# --- HARDCODED S&P 500 SECTORS ---
+# Over 140 of the highest-volume, market-moving stocks categorized by GICS sectors
+SP500_SECTOR_MAP = {
+    "Technology": ["AAPL", "MSFT", "NVDA", "AVGO", "CSCO", "ORCL", "ACN", "ADBE", "CRM", "AMD", "TXN", "QCOM", "INTC", "IBM", "AMAT", "LRCX", "ADI", "NOW", "PANW", "SNPS", "CDNS"],
+    "Financials": ["JPM", "BAC", "WFC", "C", "MS", "GS", "BRK-B", "V", "MA", "AXP", "BLK", "SCHW", "CB", "MMC", "SPGI", "PGR", "AFL"],
+    "Health Care": ["LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "PFE", "DHR", "ISRG", "AMGN", "GILD", "BMY", "VRTX", "CVS", "BDX", "BSX"],
+    "Consumer Discretionary": ["AMZN", "TSLA", "HD", "MCD", "NKE", "LOW", "SBUX", "BKNG", "TJX", "CMG", "ORLY", "GM", "F", "MAR", "HLT", "LVS"],
+    "Consumer Staples": ["WMT", "PG", "KO", "PEP", "COST", "PM", "EL", "MO", "MDLZ", "CL", "TGT", "KHC", "DG", "KR", "STZ"],
+    "Energy": ["XOM", "CVX", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "HAL", "BKR", "HES", "WMB", "DVN"],
+    "Communication Services": ["META", "GOOGL", "NFLX", "TMUS", "DIS", "T", "VZ", "CMCSA", "CHTR", "EA", "TTWO"],
+    "Industrials": ["CAT", "GE", "UNP", "HON", "UPS", "LMT", "RTX", "DE", "BA", "CSX", "NSC", "ADP", "WM", "FDX", "ETN", "ITW"],
+    "Utilities": ["NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "EXC", "PCG", "XEL", "ED"],
+    "Materials": ["LIN", "APD", "SHW", "FCX", "ECL", "NUE", "NEM", "DOW", "DD", "ALB"],
+    "Real Estate": ["PLD", "AMT", "EQIX", "CCI", "WY", "PSA", "O", "SPG"]
+}
 
-# Fetch the live list
-sp500_df = get_sp500_data()
-
-# Static presets for other indexes
 DOW_30 = ["AAPL", "AMZN", "AXP", "BA", "BAC", "CAT", "CRM", "CSCO", "CVX", "DIS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "SHW", "TRV", "UNH", "V", "VZ", "WMT"]
 
 # --- 1. SIDEBAR CONFIGURATION ---
 st.sidebar.header("1. Choose Your Data Source")
 source_type = st.sidebar.radio(
     "Data Source:",
-    ["Custom Watchlist", "Live S&P 500 (Dynamically Loaded)", "Dow Jones 30"]
+    ["Custom Watchlist", "S&P 500 Sector List", "Dow Jones 30"]
 )
 
 # Manage Ticker Population
 if source_type == "Custom Watchlist":
     default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL"
     watchlist_input = st.sidebar.text_area("Edit Watchlist (comma-separated):", default_watchlist)
-    # Remove duplicates
+    # Automatically remove duplicates and spaces
     tickers = list(dict.fromkeys([t.strip().upper() for t in watchlist_input.split(",") if t.strip()]))
     
-elif source_type == "Live S&P 500 (Dynamically Loaded)":
-    sectors = ["All Sectors"] + list(sp500_df['GICS Sector'].unique())
+elif source_type == "S&P 500 Sector List":
+    sectors = ["All Sectors"] + list(SP500_SECTOR_MAP.keys())
     selected_sector = st.sidebar.selectbox("Filter S&P 500 by Sector:", sectors)
     
     if selected_sector == "All Sectors":
-        filtered_sp500 = sp500_df
+        # Combine all tickers from all sectors into one big flat list
+        raw_tickers = []
+        for sect_tickers in SP500_SECTOR_MAP.values():
+            raw_tickers.extend(sect_tickers)
     else:
-        filtered_sp500 = sp500_df[sp500_df['GICS Sector'] == selected_sector]
+        raw_tickers = SP500_SECTOR_MAP[selected_sector]
         
-    # Get tickers and remove duplicates while keeping order
-    raw_tickers = list(dict.fromkeys(filtered_sp500['Symbol'].tolist()))
+    # Remove duplicates while maintaining order
+    raw_tickers = list(dict.fromkeys(raw_tickers))
     
-    # Unleash slider to the full size of the filtered list (can be all 500+)
-    max_scan = st.sidebar.slider("Number of Stocks to Scan:", 5, len(raw_tickers), min(100, len(raw_tickers)))
+    # Unleash slider to scan the entire set
+    max_scan = st.sidebar.slider("Number of Stocks to Scan:", 5, len(raw_tickers), len(raw_tickers))
     tickers = raw_tickers[:max_scan]
     
-    # Helpful execution speed warning
-    if max_scan > 100:
-        st.sidebar.warning(f"⚠️ Scanning {max_scan} stocks may take 1 to 2 minutes depending on Yahoo Finance speeds.")
+    if max_scan > 50:
+        st.sidebar.warning(f"⚠️ Scanning {max_scan} stocks may take up to 30-45 seconds depending on connection speeds.")
     
 else:
     tickers = list(dict.fromkeys(DOW_30)) # Remove duplicates
