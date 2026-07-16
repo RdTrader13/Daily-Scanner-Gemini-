@@ -4,25 +4,54 @@ import pandas as pd
 import numpy as np
 
 # Set page config
-st.set_page_config(page_title="AI Multi-Stock Watchlist Scanner", layout="wide")
+st.set_page_config(page_title="AI Index & Watchlist Scanner", layout="wide")
 
 # Title and Description
-st.title("📊 Custom AI Stock Watchlist Scanner")
-st.markdown("Scan your favorite tickers simultaneously for active triggers or ongoing trends with volatility-adjusted stops and targets.")
+st.title("📊 Custom AI Stock Watchlist & Index Scanner")
+st.markdown("Scan your personal watchlist or major indexes. Filter for active triggers or ongoing trends with volatility-adjusted stops and targets.")
 
-# 1. SIDEBAR INPUTS
-st.sidebar.header("Configuration")
-default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL"
-watchlist_input = st.sidebar.text_area("Edit Watchlist (comma-separated):", default_watchlist)
+# --- INDEX TICKER LISTS ---
+DOW_30 = ["AAPL", "AMZN", "AXP", "BA", "BAC", "CAT", "CRM", "CSCO", "CVX", "DIS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "SHW", "TRV", "UNH", "V", "VZ", "WMT"]
 
-# Parse list
-tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
+NASDAQ_100_SAMPLE = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "PEP", "COST", "CSCO", "TMUS", "ADBE", "CMCSA", "TXN", "QCOM", "AMD", "INTU", "AMGN", "ISRG", "HON", "AMAT", "BKNG", "VRTX", "ADP", "ADI", "MDLZ", "GILD", "LRCX"]
 
-# Parameters
+SP500_SECTOR_LEADERS = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "BRK.B", "LLY", "JPM", "XOM", "UNH", "V", "PG", "MA", "AVGO", "HD", "TSLA", "CVX", "MRK", "ABBV", "COST", "PEP", "ADBE", "WMT", "FMC", "BAC", "KO", "MCD", "CRM", "CSCO", "ACN", "T", "VZ", "XOM", "HAL", "SLB"]
+
+# 1. SIDEBAR CONFIGURATION
+st.sidebar.header("1. Choose Your Data Source")
+source_type = st.sidebar.radio(
+    "Data Source:",
+    ["Custom Watchlist", "Dow Jones 30", "Nasdaq 100 (Top 30)", "S&P 500 (Sector Leaders)"]
+)
+
+# Populate tickers based on selection
+if source_type == "Custom Watchlist":
+    default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL"
+    watchlist_input = st.sidebar.text_area("Edit Watchlist (comma-separated):", default_watchlist)
+    tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
+elif source_type == "Dow Jones 30":
+    tickers = DOW_30
+elif source_type == "Nasdaq 100 (Top 30)":
+    tickers = NASDAQ_100_SAMPLE
+else:
+    tickers = SP500_SECTOR_LEADERS
+
+st.sidebar.write(f"**Loaded {len(tickers)} tickers to scan.**")
+
+st.sidebar.write("---")
+st.sidebar.header("2. Set Scanner Parameters")
 atr_period = st.sidebar.slider("ATR Period (Volatility)", 5, 30, 14)
 risk_multiplier = st.sidebar.slider("ATR Risk Multiplier", 1.0, 3.0, 1.5, step=0.1)
 
-# 2. SIGNAL LOGIC FUNCTION WITH MULTI-LEVEL "HOLD" DIAGNOSTICS
+st.sidebar.write("---")
+st.sidebar.header("3. Filter Dashboard Display")
+filter_signal = st.sidebar.multiselect(
+    "Show only these signals in dashboard:",
+    ["🟢 BUY TRIGGER", "🟡 HOLD (Bullish Trend)", "⚪ HOLD (Bearish/Cash)", "🔴 SELL TRIGGER"],
+    default=["🟢 BUY TRIGGER", "🟡 HOLD (Bullish Trend)", "⚪ HOLD (Bearish/Cash)", "🔴 SELL TRIGGER"]
+)
+
+# 2. SIGNAL LOGIC FUNCTION
 def scan_ticker(ticker_symbol):
     try:
         # Fetch 60 days of data
@@ -53,23 +82,20 @@ def scan_ticker(ticker_symbol):
         true_range = np.max(ranges, axis=1)
         df['ATR'] = true_range.rolling(atr_period).mean()
         
-        # Grab last 2 rows to evaluate crossovers
         latest = df.iloc[-1]
         prev = df.iloc[-2]
         
         price = latest['Close']
         atr = latest['ATR']
         
-        # Crossover logic
         bullish_cross = (prev['EMA_9'] <= prev['EMA_21']) and (latest['EMA_9'] > latest['EMA_21'])
         bearish_cross = (prev['EMA_9'] >= prev['EMA_21']) and (latest['EMA_9'] < latest['EMA_21'])
         
-        signal = "⚪ HOLD (Neutral/Cash)"
+        signal = "⚪ HOLD (Bearish/Cash)"
         stop_loss = 0.0
         target_1 = 0.0
         target_2 = 0.0
         
-        # Determine Signal State
         if bullish_cross and latest['RSI'] > 40:
             signal = "🟢 BUY TRIGGER"
             stop_loss = price - (risk_multiplier * atr)
@@ -99,9 +125,9 @@ def scan_ticker(ticker_symbol):
             "Price": round(price, 2),
             "Signal": signal,
             "Stop Loss": round(stop_loss, 2) if stop_loss > 0 else "-",
-            "Target 1 (1:1 R:R)": round(target_1, 2) if target_1 > 0 else "-",
-            "Target 2 (1:2 R:R)": round(target_2, 2) if target_2 > 0 else "-",
-            "RSI (14)": round(latest['RSI'], 1),
+            "Target 1": round(target_1, 2) if target_1 > 0 else "-",
+            "Target 2": round(target_2, 2) if target_2 > 0 else "-",
+            "RSI": round(latest['RSI'], 1),
             "ATR": round(atr, 2)
         }
     except Exception as e:
@@ -109,7 +135,7 @@ def scan_ticker(ticker_symbol):
 
 # 3. RUN SCANNER INTERFACE
 if st.button("🔍 Run Scanner Now", type="primary"):
-    with st.spinner(f"Scanning {len(tickers)} tickers..."):
+    with st.spinner(f"Scanning {len(tickers)} tickers... This may take a moment."):
         results = []
         for ticker in tickers:
             data = scan_ticker(ticker)
@@ -119,27 +145,39 @@ if st.button("🔍 Run Scanner Now", type="primary"):
         if results:
             scan_df = pd.DataFrame(results)
             
-            # Display overall stats
+            # Master Calculations (unfiltered counts for KPI cards)
+            total_scanned = len(scan_df)
+            buy_triggers = len(scan_df[scan_df['Signal'] == "🟢 BUY TRIGGER"])
+            bullish_holds = len(scan_df[scan_df['Signal'] == "🟡 HOLD (Bullish Trend)"])
+            sell_triggers = len(scan_df[scan_df['Signal'] == "🔴 SELL TRIGGER"])
+            
+            # Apply Sidebar Display Filters to the main viewable table
+            filtered_df = scan_df[scan_df['Signal'].isin(filter_signal)]
+            
+            # KPI Cards
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Scanned", len(scan_df))
-            col2.metric("🟢 Active Buy Triggers", len(scan_df[scan_df['Signal'] == "🟢 BUY TRIGGER"]))
-            col3.metric("🟡 Bullish Holds", len(scan_df[scan_df['Signal'] == "🟡 HOLD (Bullish Trend)"]))
-            col4.metric("🔴 Active Sell Triggers", len(scan_df[scan_df['Signal'] == "🔴 SELL TRIGGER"]))
+            col1.metric("Total Scanned", total_scanned)
+            col2.metric("🟢 Active Buy Triggers", buy_triggers)
+            col3.metric("🟡 Bullish Holds", bullish_holds)
+            col4.metric("🔴 Active Sell Triggers", sell_triggers)
             
             st.write("---")
             
-            # Interactive Dataframe
-            st.subheader("Scanner Dashboard")
-            st.dataframe(
-                scan_df, 
-                use_container_width=True,
-                column_config={
-                    "Signal": st.column_config.TextColumn("Signal Rating"),
-                    "Price": st.column_config.NumberColumn("Current Price", format="$%.2f"),
-                    "Stop Loss": st.column_config.TextColumn("Dynamic Stop Loss"),
-                    "Target 1 (1:1 R:R)": st.column_config.TextColumn("Profit Target 1"),
-                    "Target 2 (1:2 R:R)": st.column_config.TextColumn("Profit Target 2")
-                }
-            )
+            # Interactive Table
+            st.subheader(f"Filtered Results ({len(filtered_df)} showing)")
+            if not filtered_df.empty:
+                st.dataframe(
+                    filtered_df, 
+                    use_container_width=True,
+                    column_config={
+                        "Signal": st.column_config.TextColumn("Signal Rating"),
+                        "Price": st.column_config.NumberColumn("Current Price", format="$%.2f"),
+                        "Stop Loss": st.column_config.TextColumn("Dynamic Stop Loss"),
+                        "Target 1": st.column_config.TextColumn("Profit Target 1"),
+                        "Target 2": st.column_config.TextColumn("Profit Target 2")
+                    }
+                )
+            else:
+                st.info("No tickers match your active filter criteria. Try expanding the sidebar filters.")
         else:
-            st.error("No valid data retrieved. Please check your watchlist ticker symbols.")
+            st.error("No valid data retrieved. Please check your setup and try again.")
