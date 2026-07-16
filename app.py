@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import requests  # Import requests to handle browser masking
 
 # Set page config
 st.set_page_config(page_title="Live AI S&P 500 & Index Scanner", layout="wide")
@@ -10,18 +11,23 @@ st.set_page_config(page_title="Live AI S&P 500 & Index Scanner", layout="wide")
 st.title("📊 Live AI S&P 500 & Index Scanner")
 st.markdown("Scan your personal watchlist or dynamically query the S&P 500 by industry sector.")
 
-# --- DYNAMIC S&P 500 WIKIPEDIA SCRAPER ---
+# --- DYNAMIC S&P 500 WIKIPEDIA SCRAPER WITH BROWSER MASKING ---
 @st.cache_data(ttl=86400)  # Cache the data for 24 hours so it's lightning-fast
 def get_sp500_data():
     try:
         url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        tables = pd.read_html(url)
+        # Disguise the request as a real browser visit
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        tables = pd.read_html(response.text)
         df = tables[0]
         # Clean ticker symbols (Wikipedia uses dots instead of hyphens, e.g., BRK.B instead of BRK-B)
         df['Symbol'] = df['Symbol'].str.replace('.', '-', regex=False)
         return df[['Symbol', 'Security', 'GICS Sector']]
     except Exception as e:
-        # Fallback list of top 30 S&P 500 stocks if Wikipedia is down
+        # Fixed Fallback list of top 30 S&P 500 stocks if Wikipedia is down (XOM is only listed once here)
         fallback = pd.DataFrame({
             'Symbol': ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "TSLA", "BRK-B", "LLY", "JPM", "XOM", "UNH", "V", "PG", "MA", "AVGO", "HD", "CVX", "MRK", "ABBV", "COST", "PEP", "ADBE", "WMT", "BAC", "KO", "MCD", "CRM", "CSCO", "ACN"],
             'Security': ["Apple", "Microsoft", "Amazon", "NVIDIA", "Meta", "Alphabet", "Tesla", "Berkshire Hathaway", "Eli Lilly", "JPMorgan Chase", "ExxonMobil", "UnitedHealth", "Visa", "Procter & Gamble", "Mastercard", "Broadcom", "Home Depot", "Chevron", "Merck", "AbbVie", "Costco", "PepsiCo", "Adobe", "Walmart", "Bank of America", "Coca-Cola", "McDonald's", "Salesforce", "Cisco", "Accenture"],
@@ -46,10 +52,10 @@ source_type = st.sidebar.radio(
 if source_type == "Custom Watchlist":
     default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL"
     watchlist_input = st.sidebar.text_area("Edit Watchlist (comma-separated):", default_watchlist)
-    tickers = list(set([t.strip().upper() for t in watchlist_input.split(",") if t.strip()])) # set() removes duplicates
+    # Remove duplicates
+    tickers = list(dict.fromkeys([t.strip().upper() for t in watchlist_input.split(",") if t.strip()]))
     
 elif source_type == "Live S&P 500 (Dynamically Loaded)":
-    # Sector filter option
     sectors = ["All Sectors"] + list(sp500_df['GICS Sector'].unique())
     selected_sector = st.sidebar.selectbox("Filter S&P 500 by Sector:", sectors)
     
@@ -58,15 +64,19 @@ elif source_type == "Live S&P 500 (Dynamically Loaded)":
     else:
         filtered_sp500 = sp500_df[sp500_df['GICS Sector'] == selected_sector]
         
-    # Get tickers
-    raw_tickers = filtered_sp500['Symbol'].tolist()
+    # Get tickers and remove duplicates while keeping order
+    raw_tickers = list(dict.fromkeys(filtered_sp500['Symbol'].tolist()))
     
-    # Scanner cap to prevent crashing/rate limits
-    max_scan = st.sidebar.slider("Max Stocks to Scan (Recommended <= 100):", 5, len(raw_tickers), min(50, len(raw_tickers)))
+    # Unleash slider to the full size of the filtered list (can be all 500+)
+    max_scan = st.sidebar.slider("Number of Stocks to Scan:", 5, len(raw_tickers), min(100, len(raw_tickers)))
     tickers = raw_tickers[:max_scan]
     
+    # Helpful execution speed warning
+    if max_scan > 100:
+        st.sidebar.warning(f"⚠️ Scanning {max_scan} stocks may take 1 to 2 minutes depending on Yahoo Finance speeds.")
+    
 else:
-    tickers = list(set(DOW_30)) # Removes duplicates automatically
+    tickers = list(dict.fromkeys(DOW_30)) # Remove duplicates
 
 st.sidebar.write(f"**Loaded {len(tickers)} tickers to scan.**")
 
