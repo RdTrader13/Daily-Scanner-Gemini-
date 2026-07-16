@@ -4,37 +4,69 @@ import pandas as pd
 import numpy as np
 
 # Set page config
-st.set_page_config(page_title="AI Index & Watchlist Scanner", layout="wide")
+st.set_page_config(page_title="Live AI S&P 500 & Index Scanner", layout="wide")
 
 # Title and Description
-st.title("📊 Custom AI Stock Watchlist & Index Scanner")
-st.markdown("Scan your personal watchlist or major indexes. Filter for active triggers or ongoing trends with volatility-adjusted stops and targets.")
+st.title("📊 Live AI S&P 500 & Index Scanner")
+st.markdown("Scan your personal watchlist or dynamically query the S&P 500 by industry sector.")
 
-# --- INDEX TICKER LISTS ---
+# --- DYNAMIC S&P 500 WIKIPEDIA SCRAPER ---
+@st.cache_data(ttl=86400)  # Cache the data for 24 hours so it's lightning-fast
+def get_sp500_data():
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        tables = pd.read_html(url)
+        df = tables[0]
+        # Clean ticker symbols (Wikipedia uses dots instead of hyphens, e.g., BRK.B instead of BRK-B)
+        df['Symbol'] = df['Symbol'].str.replace('.', '-', regex=False)
+        return df[['Symbol', 'Security', 'GICS Sector']]
+    except Exception as e:
+        # Fallback list of top 30 S&P 500 stocks if Wikipedia is down
+        fallback = pd.DataFrame({
+            'Symbol': ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "TSLA", "BRK-B", "LLY", "JPM", "XOM", "UNH", "V", "PG", "MA", "AVGO", "HD", "CVX", "MRK", "ABBV", "COST", "PEP", "ADBE", "WMT", "BAC", "KO", "MCD", "CRM", "CSCO", "ACN"],
+            'Security': ["Apple", "Microsoft", "Amazon", "NVIDIA", "Meta", "Alphabet", "Tesla", "Berkshire Hathaway", "Eli Lilly", "JPMorgan Chase", "ExxonMobil", "UnitedHealth", "Visa", "Procter & Gamble", "Mastercard", "Broadcom", "Home Depot", "Chevron", "Merck", "AbbVie", "Costco", "PepsiCo", "Adobe", "Walmart", "Bank of America", "Coca-Cola", "McDonald's", "Salesforce", "Cisco", "Accenture"],
+            'GICS Sector': ["Information Technology", "Information Technology", "Consumer Discretionary", "Information Technology", "Communication Services", "Communication Services", "Consumer Discretionary", "Financials", "Health Care", "Financials", "Energy", "Health Care", "Financials", "Consumer Staples", "Financials", "Information Technology", "Consumer Discretionary", "Energy", "Health Care", "Health Care", "Consumer Staples", "Consumer Staples", "Information Technology", "Consumer Staples", "Financials", "Consumer Staples", "Consumer Discretionary", "Information Technology", "Information Technology", "Information Technology"]
+        })
+        return fallback
+
+# Fetch the live list
+sp500_df = get_sp500_data()
+
+# Static presets for other indexes
 DOW_30 = ["AAPL", "AMZN", "AXP", "BA", "BAC", "CAT", "CRM", "CSCO", "CVX", "DIS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "SHW", "TRV", "UNH", "V", "VZ", "WMT"]
 
-NASDAQ_100_SAMPLE = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "PEP", "COST", "CSCO", "TMUS", "ADBE", "CMCSA", "TXN", "QCOM", "AMD", "INTU", "AMGN", "ISRG", "HON", "AMAT", "BKNG", "VRTX", "ADP", "ADI", "MDLZ", "GILD", "LRCX"]
-
-SP500_SECTOR_LEADERS = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "BRK.B", "LLY", "JPM", "XOM", "UNH", "V", "PG", "MA", "AVGO", "HD", "TSLA", "CVX", "MRK", "ABBV", "COST", "PEP", "ADBE", "WMT", "FMC", "BAC", "KO", "MCD", "CRM", "CSCO", "ACN", "T", "VZ", "XOM", "HAL", "SLB"]
-
-# 1. SIDEBAR CONFIGURATION
+# --- 1. SIDEBAR CONFIGURATION ---
 st.sidebar.header("1. Choose Your Data Source")
 source_type = st.sidebar.radio(
     "Data Source:",
-    ["Custom Watchlist", "Dow Jones 30", "Nasdaq 100 (Top 30)", "S&P 500 (Sector Leaders)"]
+    ["Custom Watchlist", "Live S&P 500 (Dynamically Loaded)", "Dow Jones 30"]
 )
 
-# Populate tickers based on selection
+# Manage Ticker Population
 if source_type == "Custom Watchlist":
     default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL"
     watchlist_input = st.sidebar.text_area("Edit Watchlist (comma-separated):", default_watchlist)
-    tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
-elif source_type == "Dow Jones 30":
-    tickers = DOW_30
-elif source_type == "Nasdaq 100 (Top 30)":
-    tickers = NASDAQ_100_SAMPLE
+    tickers = list(set([t.strip().upper() for t in watchlist_input.split(",") if t.strip()])) # set() removes duplicates
+    
+elif source_type == "Live S&P 500 (Dynamically Loaded)":
+    # Sector filter option
+    sectors = ["All Sectors"] + list(sp500_df['GICS Sector'].unique())
+    selected_sector = st.sidebar.selectbox("Filter S&P 500 by Sector:", sectors)
+    
+    if selected_sector == "All Sectors":
+        filtered_sp500 = sp500_df
+    else:
+        filtered_sp500 = sp500_df[sp500_df['GICS Sector'] == selected_sector]
+        
+    # Get tickers
+    raw_tickers = filtered_sp500['Symbol'].tolist()
+    
+    # Scanner cap to prevent crashing/rate limits
+    max_scan = st.sidebar.slider("Max Stocks to Scan (Recommended <= 100):", 5, len(raw_tickers), min(50, len(raw_tickers)))
+    tickers = raw_tickers[:max_scan]
+    
 else:
-    tickers = SP500_SECTOR_LEADERS
+    tickers = list(set(DOW_30)) # Removes duplicates automatically
 
 st.sidebar.write(f"**Loaded {len(tickers)} tickers to scan.**")
 
@@ -51,7 +83,7 @@ filter_signal = st.sidebar.multiselect(
     default=["🟢 BUY TRIGGER", "🟡 HOLD (Bullish Trend)", "⚪ HOLD (Bearish/Cash)", "🔴 SELL TRIGGER"]
 )
 
-# 2. SIGNAL LOGIC FUNCTION
+# --- 2. SIGNAL LOGIC FUNCTION ---
 def scan_ticker(ticker_symbol):
     try:
         # Fetch 60 days of data
@@ -133,7 +165,7 @@ def scan_ticker(ticker_symbol):
     except Exception as e:
         return None
 
-# 3. RUN SCANNER INTERFACE
+# --- 3. RUN SCANNER INTERFACE ---
 if st.button("🔍 Run Scanner Now", type="primary"):
     with st.spinner(f"Scanning {len(tickers)} tickers... This may take a moment."):
         results = []
@@ -145,13 +177,13 @@ if st.button("🔍 Run Scanner Now", type="primary"):
         if results:
             scan_df = pd.DataFrame(results)
             
-            # Master Calculations (unfiltered counts for KPI cards)
+            # Master Calculations
             total_scanned = len(scan_df)
             buy_triggers = len(scan_df[scan_df['Signal'] == "🟢 BUY TRIGGER"])
             bullish_holds = len(scan_df[scan_df['Signal'] == "🟡 HOLD (Bullish Trend)"])
             sell_triggers = len(scan_df[scan_df['Signal'] == "🔴 SELL TRIGGER"])
             
-            # Apply Sidebar Display Filters to the main viewable table
+            # Apply Sidebar Display Filters to the table
             filtered_df = scan_df[scan_df['Signal'].isin(filter_signal)]
             
             # KPI Cards
