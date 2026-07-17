@@ -58,7 +58,7 @@ else:  # Light Mode
     font_family = "sans-serif"
     header_html = "<div style='padding:10px;'><h1>📊 Light Mode Engine</h1></div>"
 
-# Use explicit string concatenations to construct the CSS safely without formatting bugs
+# Construct custom CSS rules safely using basic strings
 metric_radius = "4px" if theme_choice == "Art Deco (Turn of the Century)" else "10px"
 
 css_payload = "<style>"
@@ -68,9 +68,9 @@ css_payload += "div[data-testid='stMetric'] label, div[data-testid='stMetric'] d
 css_payload += "h1, h2, h3, p { font-family: " + font_family + " !important; color: " + text_main + " !important; }"
 css_payload += "</style>"
 
-# Inject Custom HTML Layout Levels safely
-st.markdown(css_payload, unsafe_html=True)
-st.markdown(header_html, unsafe_html=True)
+# Inject Custom Framework Layout Levels natively using modern Streamlit HTML elements
+st.html(css_payload)
+st.html(header_html)
 
 
 # --- DATA ENGINE LAYERS ---
