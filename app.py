@@ -218,7 +218,7 @@ if st.button("🔥 Run Computational Matrix Scan", type="primary", use_container
             col3.metric("Bullish Structural Holds", len(scan_df[scan_df['Signal'] == "🟡 HOLD (Bullish Trend)"]))
             col4.metric("Active Liquidations", len(scan_df[scan_df['Signal'] == "🔴 SELL TRIGGER"]))
             
-            st.markdown("<br>", unsafe_html=True)
+            st.html("<br>")
             st.subheader("📊 Live Output Dashboard")
             
             if not filtered_df.empty:
