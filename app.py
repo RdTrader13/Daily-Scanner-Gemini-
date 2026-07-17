@@ -59,27 +59,35 @@ else:  # Light Mode
     header_html = f"<div style='padding:10px;'><h1>📊 Light Mode Engine</h1></div>"
 
 # Inject Global Structural Layout Overrides based on selected parameters
-st.markdown(f"""
+st.markdown("""
     <style>
     .stApp {{
-        background-color: {bg_app} !important;
-        color: {text_main} !important;
+        background-color: {0} !important;
+        color: {1} !important;
     }}
     div[data-testid="stMetric"] {{
-        background-color: {metric_bg} !important;
-        border: 1px solid {border_color} !important;
-        border-radius: { '4px' if theme_choice == "Art Deco (Turn of the Century)" else '10px' } !important;
+        background-color: {2} !important;
+        border: 1px solid {3} !important;
+        border-radius: {4} !important;
         padding: 15px 20px;
     }}
     div[data-testid="stMetric"] label, div[data-testid="stMetric"] div[data-testid="stMetricValue"] {{
-        color: {text_main} !important;
+        color: {1} !important;
     }}
     h1, h2, h3, p {{
-        font-family: {font_family} !important;
-        color: {text_main} !important;
+        font-family: {5} !important;
+        color: {1} !important;
     }}
     </style>
-""", unsafe_html=True)
+""".format(
+    bg_app, 
+    text_main, 
+    metric_bg, 
+    border_color, 
+    '4px' if theme_choice == "Art Deco (Turn of the Century)" else '10px', 
+    font_family
+), unsafe_html=True)
+
 
 # Render Custom Banner HTML Layer
 st.markdown(header_html, unsafe_html=True)
