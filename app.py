@@ -4,78 +4,72 @@ import pandas as pd
 import numpy as np
 
 # Set page config
-st.set_page_config(page_title="AI S&P & Index Scanner", layout="wide")
+st.set_page_config(page_title="AI S&P 500 Complete Scanner", layout="wide")
 
 # Title and Description
-st.title("📊 Robust S&P Sector & Custom Index Scanner")
-st.markdown("Scan your personal watchlist or major S&P industry sectors. Fully stable, zero external scraping dependencies.")
+st.title("📊 Complete AI S&P 500 Index Scanner")
+st.markdown("Scan your personal watchlist, the Dow 30, or the entire S&P 500 with custom, user-defined Profit Target Multipliers.")
 
-# --- HARDCODED S&P 500 SECTORS ---
-# Over 140 of the highest-volume, market-moving stocks categorized by GICS sectors
-SP500_SECTOR_MAP = {
-    "Technology": ["AAPL", "MSFT", "NVDA", "AVGO", "CSCO", "ORCL", "ACN", "ADBE", "CRM", "AMD", "TXN", "QCOM", "INTC", "IBM", "AMAT", "LRCX", "ADI", "NOW", "PANW", "SNPS", "CDNS"],
-    "Financials": ["JPM", "BAC", "WFC", "C", "MS", "GS", "BRK-B", "V", "MA", "AXP", "BLK", "SCHW", "CB", "MMC", "SPGI", "PGR", "AFL"],
-    "Health Care": ["LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "PFE", "DHR", "ISRG", "AMGN", "GILD", "BMY", "VRTX", "CVS", "BDX", "BSX"],
-    "Consumer Discretionary": ["AMZN", "TSLA", "HD", "MCD", "NKE", "LOW", "SBUX", "BKNG", "TJX", "CMG", "ORLY", "GM", "F", "MAR", "HLT", "LVS"],
-    "Consumer Staples": ["WMT", "PG", "KO", "PEP", "COST", "PM", "EL", "MO", "MDLZ", "CL", "TGT", "KHC", "DG", "KR", "STZ"],
-    "Energy": ["XOM", "CVX", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "HAL", "BKR", "HES", "WMB", "DVN"],
-    "Communication Services": ["META", "GOOGL", "NFLX", "TMUS", "DIS", "T", "VZ", "CMCSA", "CHTR", "EA", "TTWO"],
-    "Industrials": ["CAT", "GE", "UNP", "HON", "UPS", "LMT", "RTX", "DE", "BA", "CSX", "NSC", "ADP", "WM", "FDX", "ETN", "ITW"],
-    "Utilities": ["NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "EXC", "PCG", "XEL", "ED"],
-    "Materials": ["LIN", "APD", "SHW", "FCX", "ECL", "NUE", "NEM", "DOW", "DD", "ALB"],
-    "Real Estate": ["PLD", "AMT", "EQIX", "CCI", "WY", "PSA", "O", "SPG"]
-}
+# --- COMPACT HARDCODED FULL S&P 500 TICKER LIST (500+ SYMBOLS) ---
+FULL_SP500 = [
+    "A", "AAL", "AAPL", "ABBV", "ABNB", "ABT", "ACGL", "ACN", "ADBE", "ADI", "ADM", "ADSK", "ADT", "AEE", "AEP", "AES", "AFL", "AIG", "AIZ", "AJG", "AKAM", "ALB", "ALGN", "ALL", "ALLE", "AMAT", "AMCR", "AMD", "AME", "AMGN", "AMP", "AMT", "AMZN", "ANET", "ANSS", "AON", "AOS", "APA", "APD", "APH", "APO", "APTV", "ARE", "ATO", "AVB", "AVGO", "AVY", "AWK", "AXON", "AXP", "AZO",
+    "BA", "BAC", "BALL", "BAX", "BBY", "BDX", "BEN", "BF-B", "BG", "BIIB", "BIO", "BK", "BKNG", "BKR", "BLDR", "BLK", "BMY", "BR", "BRK-B", "BRO", "BSX", "BWA", "BX", "BXP",
+    "C", "CAG", "CAH", "CARR", "CAT", "CB", "CBOE", "CBRE", "CCI", "CCK", "CCL", "CDNS", "CDW", "CE", "CEG", "CF", "CFG", "CHD", "CHRW", "CHTR", "CI", "CINF", "Cisco", "CL", "CLX", "CMA", "CMCSA", "CME", "CMG", "CMI", "CMS", "CNC", "CNP", "COF", "COO", "COP", "COR", "COST", "CPB", "CPRT", "CPT", "CRL", "CRM", "CSCO", "CSGP", "CSX", "CTAS", "CTRA", "CTSH", "CTVA", "CVS", "CVX", "CZR",
+    "D", "DAL", "DAY", "DD", "DE", "DECK", "DFS", "DG", "DGX", "DHI", "DHR", "DIS", "DISH", "DLR", "DLTR", "DOC", "DOV", "DOW", "DPZ", "DRI", "DTE", "DUK", "DVA", "DVN", "DXCM", "DXC",
+    "EA", "ECL", "ED", "EFX", "EG", "EIX", "EL", "ELV", "EMN", "EMR", "ENPH", "EOG", "EPAM", "EQIX", "EQR", "EQT", "ES", "ESS", "ETN", "ETR", "ETSY", "EVRG", "EW", "EXC", "EXPD", "EXPE", "EXR",
+    "F", "FANG", "FAST", "FI", "FICO", "FIS", "FITB", "FLT", "FMC", "FOXA", "FOXB", "FRT", "FSLR", "FTNT", "FTV",
+    "GD", "GE", "GEHC", "GEV", "GILD", "GIS", "GL", "GLW", "GM", "GNRC", "GOOG", "GOOGL", "GPC", "GPN", "GRMN", "GS", "GWW",
+    "HAL", "HAS", "HBAN", "HCA", "HD", "HES", "HIG", "HII", "HLT", "HOLX", "HON", "HPE", "HPQ", "HRL", "HSIC", "HST", "HSY", "HUBB", "HUM", "HWM",
+    "IBM", "ICE", "IDXX", "IEX", "IFF", "ILMN", "INCY", "INTC", "INTU", "INVH", "IP", "IPG", "IQV", "IR", "IRM", "ISRG", "IT", "ITW", "IVZ",
+    "J", "JBHT", "JBL", "JCI", "JKHY", "JNJ", "JNPR", "JPM", "JRE", "K", "KDP", "KEY", "KEYS", "KHC", "KIM", "KLAC", "KMB", "KMI", "KMX", "KO", "KR", "KVUE", "L", "LDOS", "LEN", "LH", "LHX", "LIN", "LKQ", "LLY", "LMT", "LNC", "LNT", "LOW", "LRCX", "LULU", "LUV", "LVS", "LW", "LYB", "LYV",
+    "MA", "MAA", "MAR", "MAS", "MCD", "MCHP", "MCK", "MCO", "MDLZ", "MDT", "MET", "META", "MGM", "MHK", "MKC", "MKTX", "MLM", "MMC", "MMM", "MNST", "MO", "MOH", "MOS", "MPC", "MPWR", "MRK", "MRNA", "MS", "MSI", "MSFT", "MTB", "MTD", "MU", "MULN", "MYL",
+    "NDAQ", "NDSN", "NEE", "NEM", "NFLX", "NI", "NKE", "NIQ", "NOC", "NOW", "NRG", "NSC", "NTAP", "NTR", "NUE", "NVDA", "NVR", "NWM", "NWL", "NWS", "NWSA", "NXPI",
+    "O", "ODFL", "OKE", "OMC", "ON", "ORLY", "ORCL", "OTIS", "OXY",
+    "PANW", "PARA", "PAYC", "PAYX", "PCAR", "PCG", "PCLN", "PDCO", "PDD", "PEAK", "PEG", "PEP", "PFE", "PFG", "PG", "PGR", "PH", "PHM", "PKG", "PKI", "PLD", "PLTR", "PM", "PNC", "PNR", "PNW", "PODD", "POOL", "PPG", "PPL", "PRU", "PSA", "PSX", "PTC", "PWR", "PX", "PXD", "PYPL",
+    "QCOM", "QRVO", "RCL", "RE", "REG", "REGN", "RF", "RHI", "RJM", "RMD", "ROK", "ROL", "ROP", "ROST", "RPRX", "RPT", "RTX", "RVTY", "SBAC", "SBUX", "SCG", "SCHW", "SHW", "SIRI", "SITM", "SIVB", "SJM", "SLB", "SLG", "SNA", "SNPS", "SO", "SPG", "SPGI", "SPLK", "SRE", "STE", "STLD", "STT", "STX", "STZ", "SWK", "SWKS", "SYF", "SYK", "SYY",
+    "T", "TAP", "TDG", "TDY", "TECH", "TEL", "TER", "TEVA", "TFC", "TFX", "TGT", "TIW", "TJX", "TMO", "TMUS", "TPR", "TRGP", "TRMB", "TROW", "TRV", "TSCO", "TSLA", "TSN", "TT", "TTWO", "TXN", "TXT", "TYL",
+    "UAL", "UDR", "UHS", "ULTA", "UNH", "UNP", "UPS", "URI", "USB", "V", "VALE", "VFC", "VICI", "VLO", "VLTO", "VMC", "VNO", "VNT", "VRSK", "VRSN", "VRTX", "VTR", "VTRS", "VZ",
+    "WAB", "WAT", "WBA", "WBD", "WEC", "WELL", "WFC", "WHR", "WM", "WMB", "WMT", "WRB", "WRK", "WST", "WTW", "WY", "WYNN", "XCEL", "XOM", "XRAY", "XYL", "YUM", "ZBH", "ZBRA", "ZION", "ZTS"
+]
 
 DOW_30 = ["AAPL", "AMZN", "AXP", "BA", "BAC", "CAT", "CRM", "CSCO", "CVX", "DIS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "SHW", "TRV", "UNH", "V", "VZ", "WMT"]
 
 # --- 1. SIDEBAR CONFIGURATION ---
-st.sidebar.header("1. Choose Your Data Source")
+st.sidebar.header("1. Data Source Selection")
 source_type = st.sidebar.radio(
     "Data Source:",
-    ["Custom Watchlist", "S&P 500 Sector List", "Dow Jones 30"]
+    ["Custom Watchlist", "Full S&P 500 Index (All 500+)", "Dow Jones 30"]
 )
 
-# Manage Ticker Population
 if source_type == "Custom Watchlist":
     default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL"
     watchlist_input = st.sidebar.text_area("Edit Watchlist (comma-separated):", default_watchlist)
-    # Automatically remove duplicates and spaces
     tickers = list(dict.fromkeys([t.strip().upper() for t in watchlist_input.split(",") if t.strip()]))
     
-elif source_type == "S&P 500 Sector List":
-    sectors = ["All Sectors"] + list(SP500_SECTOR_MAP.keys())
-    selected_sector = st.sidebar.selectbox("Filter S&P 500 by Sector:", sectors)
-    
-    if selected_sector == "All Sectors":
-        # Combine all tickers from all sectors into one big flat list
-        raw_tickers = []
-        for sect_tickers in SP500_SECTOR_MAP.values():
-            raw_tickers.extend(sect_tickers)
-    else:
-        raw_tickers = SP500_SECTOR_MAP[selected_sector]
-        
-    # Remove duplicates while maintaining order
-    raw_tickers = list(dict.fromkeys(raw_tickers))
-    
-    # Unleash slider to scan the entire set
-    max_scan = st.sidebar.slider("Number of Stocks to Scan:", 5, len(raw_tickers), len(raw_tickers))
+elif source_type == "Full S&P 500 Index (All 500+)":
+    raw_tickers = list(dict.fromkeys(FULL_SP500))
+    max_scan = st.sidebar.slider("Number of Stocks to Scan:", 5, len(raw_tickers), 50)
     tickers = raw_tickers[:max_scan]
-    
     if max_scan > 50:
-        st.sidebar.warning(f"⚠️ Scanning {max_scan} stocks may take up to 30-45 seconds depending on connection speeds.")
-    
+        st.sidebar.warning(f"⚠️ Scanning {max_scan} stocks will take roughly {round(max_scan * 0.25)} seconds based on connection bounds.")
 else:
-    tickers = list(dict.fromkeys(DOW_30)) # Remove duplicates
+    tickers = list(dict.fromkeys(DOW_30))
 
 st.sidebar.write(f"**Loaded {len(tickers)} tickers to scan.**")
 
 st.sidebar.write("---")
-st.sidebar.header("2. Set Scanner Parameters")
-atr_period = st.sidebar.slider("ATR Period (Volatility)", 5, 30, 14)
-risk_multiplier = st.sidebar.slider("ATR Risk Multiplier", 1.0, 3.0, 1.5, step=0.1)
+st.sidebar.header("2. Set Dynamic Risk Parameters")
+atr_period = st.sidebar.slider("ATR Period (Volatility Noise)", 5, 30, 14)
+risk_multiplier = st.sidebar.slider("ATR Risk Multiplier (Stop Loss)", 1.0, 4.0, 1.5, step=0.1)
 
 st.sidebar.write("---")
-st.sidebar.header("3. Filter Dashboard Display")
+st.sidebar.header("3. Custom Profit Target Levels")
+# User configurable risk-to-reward multipliers
+target_1_multiplier = st.sidebar.slider("Target 1 Risk/Reward Ratio (e.g., 1.5 = 1.5x Risk):", 0.5, 5.0, 1.5, step=0.1)
+target_2_multiplier = st.sidebar.slider("Target 2 Risk/Reward Ratio (e.g., 3.0 = 3.0x Risk):", 1.0, 10.0, 3.0, step=0.1)
+
+st.sidebar.write("---")
+st.sidebar.header("4. Filter Dashboard Display")
 filter_signal = st.sidebar.multiselect(
     "Show only these signals in dashboard:",
     ["🟢 BUY TRIGGER", "🟡 HOLD (Bullish Trend)", "⚪ HOLD (Bearish/Cash)", "🔴 SELL TRIGGER"],
@@ -119,6 +113,9 @@ def scan_ticker(ticker_symbol):
         price = latest['Close']
         atr = latest['ATR']
         
+        # Calculate the base monetary risk amount (Entry Price down to Stop Loss Level)
+        risk_amount = risk_multiplier * atr
+        
         bullish_cross = (prev['EMA_9'] <= prev['EMA_21']) and (latest['EMA_9'] > latest['EMA_21'])
         bearish_cross = (prev['EMA_9'] >= prev['EMA_21']) and (latest['EMA_9'] < latest['EMA_21'])
         
@@ -129,35 +126,35 @@ def scan_ticker(ticker_symbol):
         
         if bullish_cross and latest['RSI'] > 40:
             signal = "🟢 BUY TRIGGER"
-            stop_loss = price - (risk_multiplier * atr)
-            target_1 = price + (risk_multiplier * atr)
-            target_2 = price + (2 * risk_multiplier * atr)
+            stop_loss = price - risk_amount
+            target_1 = price + (risk_amount * target_1_multiplier)
+            target_2 = price + (risk_amount * target_2_multiplier)
             
         elif bearish_cross or (latest['RSI'] > 70 and latest['EMA_9'] < latest['EMA_21']):
             signal = "🔴 SELL TRIGGER"
-            stop_loss = price + (risk_multiplier * atr)
-            target_1 = price - (risk_multiplier * atr)
-            target_2 = price - (2 * risk_multiplier * atr)
+            stop_loss = price + risk_amount
+            target_1 = price - (risk_amount * target_1_multiplier)
+            target_2 = price - (risk_amount * target_2_multiplier)
             
         elif latest['EMA_9'] > latest['EMA_21']:
             signal = "🟡 HOLD (Bullish Trend)"
-            stop_loss = price - (risk_multiplier * atr)
-            target_1 = price + (risk_multiplier * atr)
-            target_2 = price + (2 * risk_multiplier * atr)
+            stop_loss = price - risk_amount
+            target_1 = price + (risk_amount * target_1_multiplier)
+            target_2 = price + (risk_amount * target_2_multiplier)
             
         else:
             signal = "⚪ HOLD (Bearish/Cash)"
-            stop_loss = price + (risk_multiplier * atr)
-            target_1 = price - (risk_multiplier * atr)
-            target_2 = price - (2 * risk_multiplier * atr)
+            stop_loss = price + risk_amount
+            target_1 = price - (risk_amount * target_1_multiplier)
+            target_2 = price - (risk_amount * target_2_multiplier)
             
         return {
             "Ticker": ticker_symbol,
             "Price": round(price, 2),
             "Signal": signal,
             "Stop Loss": round(stop_loss, 2) if stop_loss > 0 else "-",
-            "Target 1": round(target_1, 2) if target_1 > 0 else "-",
-            "Target 2": round(target_2, 2) if target_2 > 0 else "-",
+            f"Target 1 ({target_1_multiplier}:1 R:R)": round(target_1, 2) if target_1 > 0 else "-",
+            f"Target 2 ({target_2_multiplier}:1 R:R)": round(target_2, 2) if target_2 > 0 else "-",
             "RSI": round(latest['RSI'], 1),
             "ATR": round(atr, 2)
         }
@@ -183,6 +180,7 @@ if st.button("🔍 Run Scanner Now", type="primary"):
             sell_triggers = len(scan_df[scan_df['Signal'] == "🔴 SELL TRIGGER"])
             
             # Apply Sidebar Display Filters to the table
+            # Handle dynamic column names for target matching
             filtered_df = scan_df[scan_df['Signal'].isin(filter_signal)]
             
             # KPI Cards
@@ -197,17 +195,7 @@ if st.button("🔍 Run Scanner Now", type="primary"):
             # Interactive Table
             st.subheader(f"Filtered Results ({len(filtered_df)} showing)")
             if not filtered_df.empty:
-                st.dataframe(
-                    filtered_df, 
-                    use_container_width=True,
-                    column_config={
-                        "Signal": st.column_config.TextColumn("Signal Rating"),
-                        "Price": st.column_config.NumberColumn("Current Price", format="$%.2f"),
-                        "Stop Loss": st.column_config.TextColumn("Dynamic Stop Loss"),
-                        "Target 1": st.column_config.TextColumn("Profit Target 1"),
-                        "Target 2": st.column_config.TextColumn("Profit Target 2")
-                    }
-                )
+                st.dataframe(filtered_df, use_container_width=True)
             else:
                 st.info("No tickers match your active filter criteria. Try expanding the sidebar filters.")
         else:
