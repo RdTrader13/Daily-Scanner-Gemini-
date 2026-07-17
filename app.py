@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 # Set page config with a wide layout
-st.set_config = st.set_page_config(page_title="AlphaScan Interface", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AlphaScan Interface", layout="wide", initial_sidebar_state="expanded")
 
 # --- 1. THEME MATRIX ROUTER ---
 st.sidebar.header("🎨 Interface Customization")
@@ -13,7 +13,7 @@ theme_choice = st.sidebar.selectbox(
     ["Quantum Dark Core", "Art Deco (Turn of the Century)", "Standard Dark Mode", "Standard Light Mode"]
 )
 
-# Define CSS profiles based on selection
+# Define CSS styles based on selection
 if theme_choice == "Quantum Dark Core":
     bg_app = "#0B0F19"
     text_main = "#F8FAFC"
@@ -21,9 +21,9 @@ if theme_choice == "Quantum Dark Core":
     card_bg = "#1E293B"
     metric_bg = "#1E293B"
     font_family = "'Inter', sans-serif"
-    header_html = f"""
-        <div style="background-color: {card_bg}; padding: 24px; border-radius: 12px; border-left: 5px solid {border_color}; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-            <h1 style="color: {text_main} !important; margin: 0; font-family: {font_family}; font-weight: 700; letter-spacing: -0.5px;">⚡ AlphaScan AI Core</h1>
+    header_html = """
+        <div style="background-color: #1E293B; padding: 24px; border-radius: 12px; border-left: 5px solid #10B981; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+            <h1 style="color: #F8FAFC !important; margin: 0; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: -0.5px;">⚡ AlphaScan AI Core</h1>
             <p style="color: #94A3B8 !important; margin: 5px 0 0 0; font-size: 1.05rem;">Quantum-grade volatility filters & structural trend tracking engine.</p>
         </div>
     """
@@ -34,11 +34,11 @@ elif theme_choice == "Art Deco (Turn of the Century)":
     card_bg = "#1C232B"
     metric_bg = "#1A2129"
     font_family = "'Playfair Display', 'Times New Roman', serif"
-    header_html = f"""
-        <div style="background-color: {card_bg}; padding: 30px; border-radius: 4px; border: 2px solid {border_color}; border-double: 6px {border_color}; text-align: center; margin-bottom: 25px; background-image: linear-gradient(45deg, #1C232B 25%, #161C22 25%, #161C22 50%, #1C232B 50%, #1C232B 75%, #161C22 75%, #161C22 100%); background-size: 40px 40px;">
-            <h1 style="color: {border_color} !important; margin: 0; font-family: {font_family}; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; text-shadow: 1px 1px 2px #000;">THE ALPHASCAN CHRONICLE</h1>
-            <div style="width: 150px; height: 2px; background-color: {border_color}; margin: 10px auto;"></div>
-            <p style="color: {text_main} !important; margin: 5px 0 0 0; font-size: 1.1rem; font-style: italic; font-family: {font_family};">Automated Financial Machinery & Market Vector Diagnostics.</p>
+    header_html = """
+        <div style="background-color: #1C232B; padding: 30px; border-radius: 4px; border: 2px solid #C5A059; border-style: double; border-width: 6px; text-align: center; margin-bottom: 25px; background-image: linear-gradient(45deg, #1C232B 25%, #161C22 25%, #161C22 50%, #1C232B 50%, #1C232B 75%, #161C22 75%, #161C22 100%); background-size: 40px 40px;">
+            <h1 style="color: #C5A059 !important; margin: 0; font-family: 'Playfair Display', serif; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; text-shadow: 1px 1px 2px #000;">THE ALPHASCAN CHRONICLE</h1>
+            <div style="width: 150px; height: 2px; background-color: #C5A059; margin: 10px auto;"></div>
+            <p style="color: #F3EAD3 !important; margin: 5px 0 0 0; font-size: 1.1rem; font-style: italic; font-family: 'Playfair Display', serif;">Automated Financial Machinery & Market Vector Diagnostics.</p>
         </div>
     """
 elif theme_choice == "Standard Dark Mode":
@@ -48,7 +48,7 @@ elif theme_choice == "Standard Dark Mode":
     card_bg = "#161B22"
     metric_bg = "#161B22"
     font_family = "sans-serif"
-    header_html = f"<div style='padding:10px;'><h1>📊 Dark Mode Engine</h1></div>"
+    header_html = "<div style='padding:10px;'><h1>📊 Dark Mode Engine</h1></div>"
 else:  # Light Mode
     bg_app = "#FFFFFF"
     text_main = "#1F2937"
@@ -56,40 +56,20 @@ else:  # Light Mode
     card_bg = "#F9FAFB"
     metric_bg = "#F3F4F6"
     font_family = "sans-serif"
-    header_html = f"<div style='padding:10px;'><h1>📊 Light Mode Engine</h1></div>"
+    header_html = "<div style='padding:10px;'><h1>📊 Light Mode Engine</h1></div>"
 
-# Inject Global Structural Layout Overrides based on selected parameters
-st.markdown("""
-    <style>
-    .stApp {{
-        background-color: {0} !important;
-        color: {1} !important;
-    }}
-    div[data-testid="stMetric"] {{
-        background-color: {2} !important;
-        border: 1px solid {3} !important;
-        border-radius: {4} !important;
-        padding: 15px 20px;
-    }}
-    div[data-testid="stMetric"] label, div[data-testid="stMetric"] div[data-testid="stMetricValue"] {{
-        color: {1} !important;
-    }}
-    h1, h2, h3, p {{
-        font-family: {5} !important;
-        color: {1} !important;
-    }}
-    </style>
-""".format(
-    bg_app, 
-    text_main, 
-    metric_bg, 
-    border_color, 
-    '4px' if theme_choice == "Art Deco (Turn of the Century)" else '10px', 
-    font_family
-), unsafe_html=True)
+# Use explicit string concatenations to construct the CSS safely without formatting bugs
+metric_radius = "4px" if theme_choice == "Art Deco (Turn of the Century)" else "10px"
 
+css_payload = "<style>"
+css_payload += ".stApp { background-color: " + bg_app + " !important; color: " + text_main + " !important; }"
+css_payload += "div[data-testid='stMetric'] { background-color: " + metric_bg + " !important; border: 1px solid " + border_color + " !important; border-radius: " + metric_radius + " !important; padding: 15px 20px; }"
+css_payload += "div[data-testid='stMetric'] label, div[data-testid='stMetric'] div[data-testid='stMetricValue'] { color: " + text_main + " !important; }"
+css_payload += "h1, h2, h3, p { font-family: " + font_family + " !important; color: " + text_main + " !important; }"
+css_payload += "</style>"
 
-# Render Custom Banner HTML Layer
+# Inject Custom HTML Layout Levels safely
+st.markdown(css_payload, unsafe_html=True)
 st.markdown(header_html, unsafe_html=True)
 
 
@@ -221,7 +201,11 @@ def scan_ticker(ticker_symbol):
 # --- RUN PROCESSING CORE ---
 if st.button("🔥 Run Computational Matrix Scan", type="primary", use_container_width=True):
     with st.spinner("Executing system architecture sweeps..."):
-        results = [scan_ticker(t) for t in tickers if scan_ticker(t) is not None]
+        results = []
+        for t in tickers:
+            res = scan_ticker(t)
+            if res is not None:
+                results.append(res)
                 
         if results:
             scan_df = pd.DataFrame(results)
@@ -235,7 +219,7 @@ if st.button("🔥 Run Computational Matrix Scan", type="primary", use_container
             col4.metric("Active Liquidations", len(scan_df[scan_df['Signal'] == "🔴 SELL TRIGGER"]))
             
             st.markdown("<br>", unsafe_html=True)
-            st.subheader(f"📊 Live Output Dashboard ({len(filtered_df)} layers rendering)")
+            st.subheader("📊 Live Output Dashboard")
             
             if not filtered_df.empty:
                 st.dataframe(
