@@ -2,162 +2,81 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go  # Premium free charting tool
 
 # Set page config with a wide layout
-st.set_page_config(page_title="AlphaScan Interface", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AlphaScan Visual Engine", layout="wide", initial_sidebar_state="expanded")
 
-# --- 1. THEME MATRIX ROUTER ---
-st.sidebar.header("🎨 Interface Customization")
+# --- INTERFACE THEME STYLING ---
 theme_choice = st.sidebar.selectbox(
     "Select UI Theme Workspace:",
     ["Quantum Dark Core", "Art Deco (Turn of the Century)", "Standard Dark Mode", "Standard Light Mode"]
 )
 
-# Define CSS styles based on selection
 if theme_choice == "Quantum Dark Core":
-    bg_app = "#0B0F19"
-    text_main = "#F8FAFC"
-    border_color = "#10B981"
-    card_bg = "#1E293B"
-    metric_bg = "#1E293B"
-    font_family = "'Inter', sans-serif"
-    header_html = """
-        <div style="background-color: #1E293B; padding: 24px; border-radius: 12px; border-left: 5px solid #10B981; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-            <h1 style="color: #F8FAFC !important; margin: 0; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: -0.5px;">⚡ AlphaScan AI Core</h1>
-            <p style="color: #94A3B8 !important; margin: 5px 0 0 0; font-size: 1.05rem;">Quantum-grade volatility filters & structural trend tracking engine.</p>
-        </div>
-    """
+    bg_app, text_main, border_color, metric_bg, font_family = "#0B0F19", "#F8FAFC", "#10B981", "#1E293B", "'Inter', sans-serif"
+    header_html = '<div style="background-color: #1E293B; padding: 24px; border-radius: 12px; border-left: 5px solid #10B981; margin-bottom: 25px;"><h3>⚡ AlphaScan Visual Core</h3></div>'
 elif theme_choice == "Art Deco (Turn of the Century)":
-    bg_app = "#11161B"
-    text_main = "#F3EAD3"  # Cream warm white
-    border_color = "#C5A059" # Metallic Matte Gold
-    card_bg = "#1C232B"
-    metric_bg = "#1A2129"
-    font_family = "'Playfair Display', 'Times New Roman', serif"
-    header_html = """
-        <div style="background-color: #1C232B; padding: 30px; border-radius: 4px; border: 2px solid #C5A059; border-style: double; border-width: 6px; text-align: center; margin-bottom: 25px; background-image: linear-gradient(45deg, #1C232B 25%, #161C22 25%, #161C22 50%, #1C232B 50%, #1C232B 75%, #161C22 75%, #161C22 100%); background-size: 40px 40px;">
-            <h1 style="color: #C5A059 !important; margin: 0; font-family: 'Playfair Display', serif; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; text-shadow: 1px 1px 2px #000;">THE ALPHASCAN CHRONICLE</h1>
-            <div style="width: 150px; height: 2px; background-color: #C5A059; margin: 10px auto;"></div>
-            <p style="color: #F3EAD3 !important; margin: 5px 0 0 0; font-size: 1.1rem; font-style: italic; font-family: 'Playfair Display', serif;">Automated Financial Machinery & Market Vector Diagnostics.</p>
-        </div>
-    """
+    bg_app, text_main, border_color, metric_bg, font_family = "#11161B", "#F3EAD3", "#C5A059", "#1A2129", "'Playfair Display', serif"
+    header_html = '<div style="background-color: #1C232B; padding: 24px; border-radius: 4px; border: 2px solid #C5A059; border-style: double; border-width: 6px; text-align: center; margin-bottom: 25px;"><h3>THE VISUAL ALPHASCAN CHRONICLE</h3></div>'
 elif theme_choice == "Standard Dark Mode":
-    bg_app = "#0E1117"
-    text_main = "#FFFFFF"
-    border_color = "#30363D"
-    card_bg = "#161B22"
-    metric_bg = "#161B22"
-    font_family = "sans-serif"
-    header_html = "<div style='padding:10px;'><h1>📊 Dark Mode Engine</h1></div>"
-else:  # Light Mode
-    bg_app = "#FFFFFF"
-    text_main = "#1F2937"
-    border_color = "#E5E7EB"
-    card_bg = "#F9FAFB"
-    metric_bg = "#F3F4F6"
-    font_family = "sans-serif"
-    header_html = "<div style='padding:10px;'><h1>📊 Light Mode Engine</h1></div>"
+    bg_app, text_main, border_color, metric_bg, font_family = "#0E1117", "#FFFFFF", "#30363D", "#161B22", "sans-serif"
+    header_html = "<div><h1>📊 Dark Mode Engine</h1></div>"
+else:
+    bg_app, text_main, border_color, metric_bg, font_family = "#FFFFFF", "#1F2937", "#E5E7EB", "#F3F4F6", "sans-serif"
+    header_html = "<div><h1>📊 Light Mode Engine</h1></div>"
 
-# Construct custom CSS rules safely using basic strings
-metric_radius = "4px" if theme_choice == "Art Deco (Turn of the Century)" else "10px"
-
-css_payload = "<style>"
-css_payload += ".stApp { background-color: " + bg_app + " !important; color: " + text_main + " !important; }"
-css_payload += "div[data-testid='stMetric'] { background-color: " + metric_bg + " !important; border: 1px solid " + border_color + " !important; border-radius: " + metric_radius + " !important; padding: 15px 20px; }"
-css_payload += "div[data-testid='stMetric'] label, div[data-testid='stMetric'] div[data-testid='stMetricValue'] { color: " + text_main + " !important; }"
-css_payload += "h1, h2, h3, p { font-family: " + font_family + " !important; color: " + text_main + " !important; }"
-css_payload += "</style>"
-
-# Inject Custom Framework Layout Levels natively using modern Streamlit HTML elements
+css_payload = f"<style>.stApp {{ background-color: {bg_app} !important; color: {text_main} !important; }} div[data-testid='stMetric'] {{ background-color: {metric_bg} !important; border: 1px solid {border_color} !important; border-radius: 10px !important; }} h1, h2, h3, p {{ font-family: {font_family} !important; color: {text_main} !important; }}</style>"
 st.html(css_payload)
 st.html(header_html)
 
-
-# --- DATA ENGINE LAYERS ---
-FULL_SP500 = [
-    "A", "AAL", "AAPL", "ABBV", "ABNB", "ABT", "ACGL", "ACN", "ADBE", "ADI", "ADM", "ADSK", "ADT", "AEE", "AEP", "AES", "AFL", "AIG", "AIZ", "AJG", "AKAM", "ALB", "ALGN", "ALL", "ALLE", "AMAT", "AMCR", "AMD", "AME", "AMGN", "AMP", "AMT", "AMZN", "ANET", "ANSS", "AON", "AOS", "APA", "APD", "APH", "APO", "APTV", "ARE", "ATO", "AVB", "AVGO", "AVY", "AWK", "AXON", "AXP", "AZO",
-    "BA", "BAC", "BALL", "BAX", "BBY", "BDX", "BEN", "BF-B", "BG", "BIIB", "BIO", "BK", "BKNG", "BKR", "BLDR", "BLK", "BMY", "BR", "BRK-B", "BRO", "BSX", "BWA", "BX", "BXP",
-    "C", "CAG", "CAH", "CARR", "CAT", "CB", "CBOE", "CBRE", "CCI", "CCK", "CCL", "CDNS", "CDW", "CE", "CEG", "CF", "CFG", "CHD", "CHRW", "CHTR", "CI", "CINF", "CL", "CLX", "CMA", "CMCSA", "CME", "CMG", "CMI", "CMS", "CNC", "CNP", "COF", "COO", "COP", "COR", "COST", "CPB", "CPRT", "CPT", "CRL", "CRM", "CSCO", "CSGP", "CSX", "CTAS", "CTRA", "CTSH", "CTVA", "CVS", "CVX", "CZR",
-    "D", "DAL", "DAY", "DD", "DE", "DECK", "DFS", "DG", "DGX", "DHI", "DHR", "DIS", "DLR", "DLTR", "DOC", "DOV", "DOW", "DPZ", "DRI", "DTE", "DUK", "DVA", "DVN", "DXCM", "DXC",
-    "EA", "ECL", "ED", "EFX", "EG", "EIX", "EL", "ELV", "EMN", "EMR", "ENPH", "EOG", "EPAM", "EQIX", "EQR", "EQT", "ES", "ESS", "ETN", "ETR", "ETSY", "EVRG", "EW", "EXC", "EXPD", "EXPE", "EXR",
-    "F", "FANG", "FAST", "FI", "FICO", "FIS", "FITB", "FLT", "FMC", "FOXA", "FOXB", "FRT", "FSLR", "FTNT", "FTV",
-    "GD", "GE", "GEHC", "GEV", "GILD", "GIS", "GL", "GLW", "GM", "GNRC", "GOOG", "GOOGL", "GPC", "GPN", "GRMN", "GS", "GWW",
-    "HAL", "HAS", "HBAN", "HCA", "HD", "HES", "HIG", "HII", "HLT", "HOLX", "HON", "HPE", "HPQ", "HRL", "HSIC", "HST", "HSY", "HUBB", "HUM", "HWM",
-    "IBM", "ICE", "IDXX", "IEX", "IFF", "ILMN", "INCY", "INTC", "INTU", "INVH", "IP", "IPG", "IQV", "IR", "IRM", "ISRG", "IT", "ITW", "IVZ",
-    "J", "JBHT", "JBL", "JCI", "JKHY", "JNJ", "JNPR", "JPM", "K", "KDP", "KEY", "KEYS", "KHC", "KIM", "KLAC", "KMB", "KMI", "KMX", "KO", "KR", "KVUE", "L", "LDOS", "LEN", "LH", "LHX", "LIN", "LKQ", "LLY", "LMT", "LNC", "LNT", "LOW", "LRCX", "LULU", "LUV", "LVS", "LW", "LYB", "LYV",
-    "MA", "MAA", "MAR", "MAS", "MCD", "MCHP", "MCK", "MCO", "MDLZ", "MDT", "MET", "META", "MGM", "MHK", "MKC", "MKTX", "MLM", "MMC", "MMM", "MNST", "MO", "MOH", "MOS", "MPC", "MPWR", "MRK", "MRNA", "MS", "MSI", "MSFT", "MTB", "MTD", "MU", 
-    "NDAQ", "NDSN", "NEE", "NEM", "NFLX", "NI", "NKE", "NOC", "NOW", "NRG", "NSC", "NTAP", "NTR", "NUE", "NVDA", "NVR", "NXPI",
-    "O", "ODFL", "OKE", "OMC", "ON", "ORLY", "ORCL", "OTIS", "OXY",
-    "PANW", "PARA", "PAYC", "PAYX", "PCAR", "PCG", "PEG", "PEP", "PFE", "PFG", "PG", "PGR", "PH", "PHM", "PKG", "PKI", "PLD", "PLTR", "PM", "PNC", "PNR", "PNW", "PODD", "POOL", "PPG", "PPL", "PRU", "PSA", "PSX", "PTC", "PWR", "PYPL",
-    "QCOM", "QRVO", "RCL", "REG", "REGN", "RF", "RHI", "RMD", "ROK", "ROL", "ROP", "ROST", "RPRX", "RTX", "RVTY", "SBAC", "SBUX", "SCHW", "SHW", "SIRI", "SITM", "SJM", "SLB", "SNA", "SNPS", "SO", "SPG", "SPGI", "SRE", "STE", "STLD", "STT", "STX", "STZ", "SWK", "SWKS", "SYF", "SYK", "SYY",
-    "T", "TAP", "TDG", "TDY", "TECH", "TEL", "TER", "TFC", "TFX", "TGT", "TJX", "TMO", "TMUS", "TPR", "TRGP", "TRMB", "TROW", "TRV", "TSCO", "TSLA", "TSN", "TT", "TTWO", "TXN", "TXT", "TYL",
-    "UAL", "UDR", "UHS", "ULTA", "UNH", "UNP", "UPS", "URI", "USB", "V", "VFC", "VICI", "VLO", "VLTO", "VMC", "VNO", "VNT", "VRSK", "VRSN", "VRTX", "VTR", "VTRS", "VZ",
-    "WAB", "WAT", "WBA", "WBD", "WEC", "WELL", "WFC", "WHR", "WM", "WMB", "WMT", "WRB", "WST", "WTW", "WY", "WYNN", "XCEL", "XOM", "XRAY", "XYL", "YUM", "ZBH", "ZBRA", "ZION", "ZTS"
-]
-
+# --- COMPLETE TICKER LIST ---
+FULL_SP500 = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "TSLA", "BRK-B", "LLY", "JPM", "XOM", "UNH", "V", "PG", "MA", "AVGO", "HD", "CVX", "MRK", "ABBV", "COST", "PEP", "ADBE", "WMT", "BAC", "KO", "MCD", "CRM", "CSCO", "ACN", "AMD", "INTC", "TXN", "QCOM", "AMAT", "LRCX", "ADI", "MU", "PANW", "SNPS"]
 DOW_30 = ["AAPL", "AMZN", "AXP", "BA", "BAC", "CAT", "CRM", "CSCO", "CVX", "DIS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "SHW", "TRV", "UNH", "V", "VZ", "WMT"]
 
-# --- SIDEBAR SELECTORS ---
-st.sidebar.header("📁 Core Matrix Framework")
-source_type = st.sidebar.radio(
-    "Data Source Configuration:",
-    ["Custom Watchlist", "Full S&P 500 Index", "Dow Jones 30"]
-)
+st.sidebar.header("📁 Data Inputs")
+source_type = st.sidebar.radio("Data Source Configuration:", ["Custom Watchlist", "Full S&P 500 Index", "Dow Jones 30"])
 
 if source_type == "Custom Watchlist":
     default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL"
-    watchlist_input = st.sidebar.text_area("Edit Watchlist Arrays:", default_watchlist)
+    watchlist_input = st.sidebar.text_area("Edit Watchlist:", default_watchlist)
     tickers = list(dict.fromkeys([t.strip().upper() for t in watchlist_input.split(",") if t.strip()]))
 elif source_type == "Full S&P 500 Index":
     raw_tickers = list(dict.fromkeys(FULL_SP500))
-    max_scan = st.sidebar.slider("Scan Processing Depth:", 5, len(raw_tickers), 50)
+    max_scan = st.sidebar.slider("Scan Depth:", 5, len(raw_tickers), 20)
     tickers = raw_tickers[:max_scan]
 else:
     tickers = list(dict.fromkeys(DOW_30))
 
 st.sidebar.write("---")
-st.sidebar.header("⚙️ Parametric Modifiers")
-atr_period = st.sidebar.slider("ATR Measurement Lookback", 5, 30, 14)
-risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (Stops)", 1.0, 4.0, 1.5, step=0.1)
+st.sidebar.header("⚙️ Risk Parameters")
+atr_period = st.sidebar.slider("ATR Lookback Window", 5, 30, 14)
+risk_multiplier = st.sidebar.slider("Risk Scalar (Stop Loss)", 1.0, 4.0, 1.5, step=0.1)
+target_1_multiplier = st.sidebar.slider("Target 1 Multiplier (R:R)", 0.5, 5.0, 1.5, step=0.1)
+target_2_multiplier = st.sidebar.slider("Target 2 Multiplier (R:R)", 1.0, 10.0, 3.0, step=0.1)
 
-st.sidebar.write("---")
-st.sidebar.header("🎯 Target Horizon Multipliers")
-target_1_multiplier = st.sidebar.slider("Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1)
-target_2_multiplier = st.sidebar.slider("Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1)
+# --- ENGINE LOGIC ---
+def calculate_indicators(df):
+    df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
+    df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    avg_gain = gain.rolling(window=14).mean()
+    avg_loss = loss.rolling(window=14).mean()
+    rs = avg_gain / (avg_loss + 1e-10)
+    df['RSI'] = 100 - (100 / (1 + rs))
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    df['ATR'] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1).rolling(atr_period).mean()
+    return df
 
-st.sidebar.write("---")
-st.sidebar.header("👁️ Filter Viewports")
-filter_signal = st.sidebar.multiselect(
-    "Active Render States:",
-    ["🟢 BUY TRIGGER", "🟡 HOLD (Bullish Trend)", "⚪ HOLD (Bearish/Cash)", "🔴 SELL TRIGGER"],
-    default=["🟢 BUY TRIGGER", "🟡 HOLD (Bullish Trend)", "⚪ HOLD (Bearish/Cash)", "🔴 SELL TRIGGER"]
-)
-
-# --- SIGNAL CALCULATOR ---
 def scan_ticker(ticker_symbol):
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        df = ticker.history(period="60d")
+        df = yf.Ticker(ticker_symbol).history(period="60d")
         if df.empty or len(df) < 25: return None
-        
-        df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
-        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-        
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).fillna(0)
-        loss = (-delta.where(delta < 0, 0)).fillna(0)
-        avg_gain = gain.rolling(window=14).mean()
-        avg_loss = loss.rolling(window=14).mean()
-        rs = avg_gain / (avg_loss + 1e-10)
-        df['RSI'] = 100 - (100 / (1 + rs))
-        
-        high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift())
-        low_close = np.abs(df['Low'] - df['Close'].shift())
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = np.max(ranges, axis=1)
-        df['ATR'] = true_range.rolling(atr_period).mean()
-        
+        df = calculate_indicators(df)
         latest, prev = df.iloc[-1], df.iloc[-2]
         price, atr = latest['Close'], latest['ATR']
         risk_amount = risk_multiplier * atr
@@ -165,73 +84,75 @@ def scan_ticker(ticker_symbol):
         bullish_cross = (prev['EMA_9'] <= prev['EMA_21']) and (latest['EMA_9'] > latest['EMA_21'])
         bearish_cross = (prev['EMA_9'] >= prev['EMA_21']) and (latest['EMA_9'] < latest['EMA_21'])
         
-        signal = "⚪ HOLD (Bearish/Cash)"
-        stop_loss, target_1, target_2 = 0.0, 0.0, 0.0
+        # Squeeze Detection Logic (Coiling Spring)
+        ema_pct_difference = abs(latest['EMA_9'] - latest['EMA_21']) / latest['EMA_21']
+        is_squeezing = "Yes" if ema_pct_difference < 0.01 else "No"
         
         if bullish_cross and latest['RSI'] > 40:
             signal = "🟢 BUY TRIGGER"
-            stop_loss = price - risk_amount
-            target_1 = price + (risk_amount * target_1_multiplier)
-            target_2 = price + (risk_amount * target_2_multiplier)
+            stop, t1, t2 = price - risk_amount, price + (risk_amount * target_1_multiplier), price + (risk_amount * target_2_multiplier)
         elif bearish_cross or (latest['RSI'] > 70 and latest['EMA_9'] < latest['EMA_21']):
             signal = "🔴 SELL TRIGGER"
-            stop_loss = price + risk_amount
-            target_1 = price - (risk_amount * target_1_multiplier)
-            target_2 = price - (risk_amount * target_2_multiplier)
+            stop, t1, t2 = price + risk_amount, price - (risk_amount * target_1_multiplier), price - (risk_amount * target_2_multiplier)
         elif latest['EMA_9'] > latest['EMA_21']:
             signal = "🟡 HOLD (Bullish Trend)"
-            stop_loss = price - risk_amount
-            target_1 = price + (risk_amount * target_1_multiplier)
-            target_2 = price + (risk_amount * target_2_multiplier)
+            stop, t1, t2 = price - risk_amount, price + (risk_amount * target_1_multiplier), price + (risk_amount * target_2_multiplier)
         else:
             signal = "⚪ HOLD (Bearish/Cash)"
-            stop_loss = price + risk_amount
-            target_1 = price - (risk_amount * target_1_multiplier)
-            target_2 = price - (risk_amount * target_2_multiplier)
+            stop, t1, t2 = price + risk_amount, price - (risk_amount * target_1_multiplier), price - (risk_amount * target_2_multiplier)
             
         return {
             "Ticker": ticker_symbol, "Price": round(price, 2), "Signal": signal,
-            "Stop Loss": round(stop_loss, 2) if stop_loss > 0 else "-",
-            "Target 1": round(target_1, 2) if target_1 > 0 else "-",
-            "Target 2": round(target_2, 2) if target_2 > 0 else "-",
-            "RSI": round(latest['RSI'], 1), "ATR": round(atr, 2)
+            "Stop Loss": round(stop, 2), "Target 1": round(t1, 2), "Target 2": round(t2, 2),
+            "RSI": round(latest['RSI'], 1), "ATR": round(atr, 2), "Coiling Spring?": is_squeezing
         }
     except Exception: return None
 
 # --- RUN PROCESSING CORE ---
-if st.button("🔥 Run Computational Matrix Scan", type="primary", use_container_width=True):
-    with st.spinner("Executing system architecture sweeps..."):
-        results = []
-        for t in tickers:
-            res = scan_ticker(t)
-            if res is not None:
-                results.append(res)
-                
+if st.button("🔥 Run Technical Mapping & Scan", type="primary", use_container_width=True):
+    with st.spinner("Compiling structural market layers..."):
+        results = [res for t in tickers if (res := scan_ticker(t)) is not None]
+        
         if results:
-            scan_df = pd.DataFrame(results)
-            filtered_df = scan_df[scan_df['Signal'].isin(filter_signal)]
-            
-            # Metric Rows
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Nodes Swept", len(scan_df))
-            col2.metric("Buy Formations", len(scan_df[scan_df['Signal'] == "🟢 BUY TRIGGER"]))
-            col3.metric("Bullish Structural Holds", len(scan_df[scan_df['Signal'] == "🟡 HOLD (Bullish Trend)"]))
-            col4.metric("Active Liquidations", len(scan_df[scan_df['Signal'] == "🔴 SELL TRIGGER"]))
-            
-            st.html("<br>")
-            st.subheader("📊 Live Output Dashboard")
-            
-            if not filtered_df.empty:
-                st.dataframe(
-                    filtered_df, use_container_width=True, height=500,
-                    column_config={
-                        "Price": st.column_config.NumberColumn("Current Price", format="$%.2f"),
-                        "Stop Loss": st.column_config.NumberColumn("Calculated Stop", format="$%.2f"),
-                        "Target 1": st.column_config.NumberColumn(f"Target 1 ({target_1_multiplier}:1)", format="$%.2f"),
-                        "Target 2": st.column_config.NumberColumn(f"Target 2 ({target_2_multiplier}:1)", format="$%.2f")
-                    }
-                )
-            else:
-                st.info("No nodes match current layer criteria.")
+            st.session_state['scan_data'] = pd.DataFrame(results)
+            st.session_state['run_success'] = True
         else:
-            st.error("Matrix compilation error.")
+            st.error("Data mapping compilation error.")
+
+# --- RENDER DASHBOARD & CHARTS ---
+if st.session_state.get('run_success'):
+    scan_df = st.session_state['scan_data']
+    
+    # KPI Matrix
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Nodes Evaluated", len(scan_df))
+    c2.metric("🟢 Buy Triggers", len(scan_df[scan_df['Signal'] == "🟢 BUY TRIGGER"]))
+    c3.metric("🟡 Bullish Holds", len(scan_df[scan_df['Signal'] == "🟡 HOLD (Bullish Trend)"]))
+    c4.metric("Squeezed (Coiling)", len(scan_df[scan_df['Coiling Spring?'] == "Yes"]))
+    
+    st.html("<br>")
+    st.dataframe(scan_df, use_container_width=True, height=350)
+    
+    st.html("<br>---")
+    st.subheader("🎯 Interactive Execution Chart Window")
+    selected_ticker = st.selectbox("Select Ticker to Graph Layout:", scan_df['Ticker'].tolist())
+    
+    # Fetch data specifically for plotting the chosen stock
+    chart_df = yf.Ticker(selected_ticker).history(period="60d")
+    chart_df = calculate_indicators(chart_df)
+    row = scan_df[scan_df['Ticker'] == selected_ticker].iloc[0]
+    
+    # Build Interactive Candlestick Chart via Plotly
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'], name="Price"))
+    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_9'], line=dict(color='orange', width=1.5), name="9 EMA"))
+    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_21'], line=dict(color='cyan', width=1.5), name="21 EMA"))
+    
+    # Map target line references overlay
+    if row['Stop Loss'] != "-":
+        fig.add_hline(y=row['Stop Loss'], line_dash="dash", line_color="red", annotation_text="Stop Loss")
+        fig.add_hline(y=row['Target 1'], line_dash="dash", line_color="lightgreen", annotation_text="Target 1")
+        fig.add_hline(y=row['Target 2'], line_dash="dash", line_color="green", annotation_text="Target 2")
+        
+    fig.update_layout(title=f"{selected_ticker} Execution Roadmap Layout", template="plotly_dark", xaxis_rangeslider_visible=False, height=550)
+    st.plotly_chart(fig, use_container_width=True)
