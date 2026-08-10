@@ -41,7 +41,7 @@ scan_strategy = st.sidebar.radio(
 # --- TICKER SOURCE CONFIGURATION ---
 FULL_SP500 = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "TSLA", "BRK-B", "LLY", "JPM", "XOM", "UNH", "V", "PG", "MA", "AVGO", "HD", "CVX", "MRK", "ABBV", "COST", "PEP", "ADBE", "WMT", "BAC", "KO", "MCD", "CRM", "CSCO", "ACN", "AMD", "INTC", "TXN", "QCOM", "AMAT", "LRCX", "ADI", "MU", "PANW", "SNPS"]
 DOW_30 = ["AAPL", "AMZN", "AXP", "BA", "BAC", "CAT", "CRM", "CSCO", "CVX", "DIS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "SHW", "TRV", "UNH", "V", "VZ", "WMT"]
-Top_ETFs = [“BITO”, “TSLL”, “SNXX”, “TQQQ”, “NVD”, “MSTU”, “SQQQ”, “SOXL”, “MUU”, “SOXS”, “DRAM”, “SPY”, “SPDN”, “QQQ”, “IBIT”, “PLTD”, “TSLG”, “XLF”, “XLE”, “DAMD”, “HYG”, “ETHA”, “EEM”, “LQD”, “FXI”, “KORU”, “TLT”, “IWM”, “KWEB”, “TSDD”, “EWZ”, “TZA”, “EWY”, “NOWL”, “GDX”, “SCHD”, “BTCZ”, “QID”, “CONL”, “SGOV”, “XLU”, “NVDL”, “SLV”, “MSTZ”, “IONZ”, “RWM”, “IGV”, “RKLZ”, “MUD”, “KRE”, “AMZD”, “RGTZ”, “OKLL”, “IEMG”, “EFA”, “SCHX”, “SPXS”, “SPYM”, “XLK”, “XLP”, “SMH”, “XLB”, “AVS”, “VEA”, “USHY”, “MULL”, “XLV”, “SNDQ”, “SOXX”, “BIL”, “SCHG”, “RSP”, “IEFA”, “SPXU”, “VXX”, “AAPD”, “SCO”, “LABD”, “BMNU”, “XBI”, “SH”, “NVDX”, “PSLV”, “SCHB”, “VCIT”, “BITX”, “PSQ”, “VWO”, “BKLN”, “AGG”, “GOVT”, “TSLQ”, “MSFU”, “XLY”, “UVXY”, “BND”, “VOO”, “IVV”, “SCHF”, “UNG”]
+TOP_ETFS = ["BITO", "TSLL", "SNXX", "TQQQ", "NVD", "MSTU", "SQQQ", "SOXL", "MUU", "SOXS", "DRAM", "SPY", "SPDN", "QQQ", "IBIT", "PLTD", "TSLG", "XLF", "XLE", "DAMD", "HYG", "ETHA", "EEM", "LQD", "FXI", "KORU", "TLT", "IWM", "KWEB", "TSDD", "EWZ", "TZA", "EWY", "NOWL", "GDX", "SCHD", "BTCZ", "QID", "CONL", "SGOV", "XLU", "NVDL", "SLV", "MSTZ", "IONZ", "RWM", "IGV", "RKLZ", "MUD", "KRE", "AMZD", "RGTZ", "OKLL", "IEMG", "EFA", "SCHX", "SPXS", "SPYM", "XLK", "XLP", "SMH", "XLB", "AVS", "VEA", "USHY", "MULL", "XLV", "SNDQ", "SOXX", "BIL", "SCHG", "RSP", "IEFA", "SPXU", "VXX", "AAPD", "SCO", "LABD", "BMNU", "XBI", "SH", "NVDX", "PSLV", "SCHB", "VCIT", "BITX", "PSQ", "VWO", "BKLN", "AGG", "GOVT", "TSLQ", "MSFU", "XLY", "UVXY", "BND", "VOO", "IVV", "SCHF", "UNG"]
 
 if scan_strategy == "Squeeze / Penny Stock Multiplier":
     st.sidebar.header("📁 Squeeze Asset Array")
@@ -53,12 +53,16 @@ if scan_strategy == "Squeeze / Penny Stock Multiplier":
     max_price_filter = 15.00
 else:
     st.sidebar.header("📁 Core Matrix Framework")
-    source_type = st.sidebar.radio("Data Source Configuration:", ["Custom Watchlist", "Full S&P 500 Index", "Dow Jones 30"])
+    source_type = st.sidebar.radio("Data Source Configuration:", ["Custom Watchlist", "Top ETFs Array", "Full S&P 500 Index", "Dow Jones 30"])
 
     if source_type == "Custom Watchlist":
         default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL, LLY, JPM"
         watchlist_input = st.sidebar.text_area("Edit Watchlist Arrays:", default_watchlist)
         tickers = list(dict.fromkeys([t.strip().upper() for t in watchlist_input.split(",") if t.strip()]))
+    elif source_type == "Top ETFs Array":
+        raw_etfs = list(dict.fromkeys(TOP_ETFS))
+        max_scan = st.sidebar.slider("ETF Scan Processing Depth:", 5, len(raw_etfs), 30)
+        tickers = raw_etfs[:max_scan]
     elif source_type == "Full S&P 500 Index":
         raw_tickers = list(dict.fromkeys(FULL_SP500))
         max_scan = st.sidebar.slider("Scan Processing Depth:", 5, len(raw_tickers), 20)
