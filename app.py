@@ -160,7 +160,6 @@ def scan_ticker(ticker_symbol):
             hma_low = min(latest['HMA_High'], latest['HMA_Low'])
             is_inside_hma_channel = (price >= hma_low) and (price <= hma_high)
             
-            # Dynamic strategy stop binding
             stop = latest['HMA_Low']
             stop_type = "HMA Red Line"
             t1 = price + (risk_amount * target_1_multiplier)
@@ -259,89 +258,107 @@ if st.session_state.get('run_success'):
     calc_col1, calc_col2 = st.columns([1, 1.2])
     
     with calc_col1:
-        calc_ticker = st.selectbox("Select Asset from Scanned List:", scan_df['Ticker'].tolist(), key="calc_select")
-        ticker_data = scan_df[scan_df['Ticker'] == calc_ticker].iloc[0]
+        # 1. Signal Category Filter
+        available_signals = ["Show All Categories"] + sorted(scan_df['Signal'].unique().tolist())
+        selected_signal_filter = st.selectbox("Filter Assets by Signal State:", available_signals)
         
-        price_val = float(ticker_data['Price'])
-        stop_val = float(ticker_data['Calculated Stop'])
-        stop_type_label = str(ticker_data['Stop Type'])
-        t1_val = float(ticker_data['Target 1'])
-        t2_val = float(ticker_data['Target 2'])
-        
-        risk_per_share = max(price_val - stop_val, 0.01)
-        
-        st.info(f"**Asset:** {calc_ticker} | **Current Price:** ${price_val:.2f} | **{stop_type_label} Stop:** ${stop_val:.2f} | **Risk/Share:** ${risk_per_share:.2f}")
-        
-        acc_balance = st.number_input("Account Balance ($)", min_value=100.0, value=10000.0, step=500.0)
-        avail_cash = st.number_input("Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
-        risk_pct = st.slider("Account Risk Tolerance per Trade (%)", min_value=0.25, max_value=5.0, value=1.0, step=0.25) / 100.0
-        max_cap_pct = st.slider("Max Portfolio Allocation per Asset (%)", min_value=1.0, max_value=50.0, value=10.0, step=1.0) / 100.0
+        if selected_signal_filter != "Show All Categories":
+            filtered_calc_df = scan_df[scan_df['Signal'] == selected_signal_filter]
+        else:
+            filtered_calc_df = scan_df
+            
+        # 2. Filtered Stock Selection
+        if not filtered_calc_df.empty:
+            calc_ticker = st.selectbox("Select Asset from Scanned List:", filtered_calc_df['Ticker'].tolist(), key="calc_select")
+            ticker_data = filtered_calc_df[filtered_calc_df['Ticker'] == calc_ticker].iloc[0]
+            
+            price_val = float(ticker_data['Price'])
+            stop_val = float(ticker_data['Calculated Stop'])
+            stop_type_label = str(ticker_data['Stop Type'])
+            t1_val = float(ticker_data['Target 1'])
+            t2_val = float(ticker_data['Target 2'])
+            
+            risk_per_share = max(price_val - stop_val, 0.01)
+            
+            st.info(f"**Asset:** {calc_ticker} | **Current Price:** ${price_val:.2f} | **{stop_type_label} Stop:** ${stop_val:.2f} | **Risk/Share:** ${risk_per_share:.2f}")
+            
+            acc_balance = st.number_input("Account Balance ($)", min_value=100.0, value=10000.0, step=500.0)
+            avail_cash = st.number_input("Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
+            risk_pct = st.slider("Account Risk Tolerance per Trade (%)", min_value=0.25, max_value=5.0, value=1.0, step=0.25) / 100.0
+            max_cap_pct = st.slider("Max Portfolio Allocation per Asset (%)", min_value=1.0, max_value=50.0, value=10.0, step=1.0) / 100.0
+        else:
+            st.warning("No assets match the selected signal state filter.")
+            calc_ticker = None
 
     with calc_col2:
-        dollar_risk_allowed = acc_balance * risk_pct
-        max_capital_allowed = acc_balance * max_cap_pct
-        
-        shares_by_risk = int(dollar_risk_allowed / risk_per_share)
-        shares_by_cap = int(max_capital_allowed / price_val)
-        shares_by_cash = int(avail_cash / price_val)
-        
-        final_shares = max(0, min(shares_by_risk, shares_by_cap, shares_by_cash))
-        final_invested = final_shares * price_val
-        final_actual_risk = final_shares * risk_per_share
-        
-        if final_shares == shares_by_risk:
-            determining_factor = "🛡️ **Risk Tolerance Limit** (Stopped out at exact risk budget)"
-        elif final_shares == shares_by_cap:
-            determining_factor = "🔒 **Capital Allocation Cap** (Prevents over-concentration)"
-        else:
-            determining_factor = "💵 **Available Cash Limit** (Restricted by liquid funds)"
+        if calc_ticker is not None:
+            dollar_risk_allowed = acc_balance * risk_pct
+            max_capital_allowed = acc_balance * max_cap_pct
             
-        st.markdown("### **Entry Position Allocation**")
-        m1, m2 = st.columns(2)
-        m1.metric("Recommended Share Count", f"{final_shares:,} Shares")
-        m2.metric("Total Capital Invested", f"${final_invested:,.2f} ({ (final_invested/acc_balance)*100:.1f}%)")
-        
-        m3, m4 = st.columns(2)
-        m3.metric("Max Dollar Risk", f"${final_actual_risk:,.2f} ({ (final_actual_risk/acc_balance)*100:.2f}%)")
-        m4.metric("Max Risk Budget", f"${dollar_risk_allowed:,.2f}")
-        
-        st.write(f"**Primary Sizing Constraint:** {determining_factor}")
+            shares_by_risk = int(dollar_risk_allowed / risk_per_share)
+            shares_by_cap = int(max_capital_allowed / price_val)
+            shares_by_cash = int(avail_cash / price_val)
+            
+            final_shares = max(0, min(shares_by_risk, shares_by_cap, shares_by_cash))
+            final_invested = final_shares * price_val
+            final_actual_risk = final_shares * risk_per_share
+            
+            if final_shares == shares_by_risk:
+                determining_factor = "🛡️ **Risk Tolerance Limit** (Stopped out at exact risk budget)"
+            elif final_shares == shares_by_cap:
+                determining_factor = "🔒 **Capital Allocation Cap** (Prevents over-concentration)"
+            else:
+                determining_factor = "💵 **Available Cash Limit** (Restricted by liquid funds)"
+                
+            st.markdown("### **Entry Position Allocation**")
+            m1, m2 = st.columns(2)
+            m1.metric("Recommended Share Count", f"{final_shares:,} Shares")
+            m2.metric("Total Capital Invested", f"${final_invested:,.2f} ({ (final_invested/acc_balance)*100:.1f}%)")
+            
+            m3, m4 = st.columns(2)
+            m3.metric("Max Dollar Risk", f"${final_actual_risk:,.2f} ({ (final_actual_risk/acc_balance)*100:.2f}%)")
+            m4.metric("Max Risk Budget", f"${dollar_risk_allowed:,.2f}")
+            
+            st.write(f"**Primary Sizing Constraint:** {determining_factor}")
 
     # --- TOGGLEABLE PARTIAL TAKE-PROFIT EXIT ENGINE ---
-    st.write("---")
-    show_exit_calc = st.checkbox("🎯 Enable Partial Take-Profit Exit Calculator", value=True)
-    
-    if show_exit_calc and final_shares > 0:
-        st.markdown("#### **Partial Exit Realization Strategy**")
-        p_col1, p_col2 = st.columns(2)
+    if calc_ticker is not None:
+        st.write("---")
+        show_exit_calc = st.checkbox("🎯 Enable Partial Take-Profit Exit Calculator", value=True)
         
-        with p_col1:
-            t1_sell_pct = st.slider("Target 1 Exit (% of Total Position)", 0.0, 100.0, 33.3, step=0.1) / 100.0
-            t1_shares_to_sell = int(final_shares * t1_sell_pct)
-            t1_cash_realized = t1_shares_to_sell * t1_val
-            t1_profit_realized = t1_shares_to_sell * (t1_val - price_val)
+        if show_exit_calc and final_shares > 0:
+            st.markdown("#### **Partial Exit Realization Strategy**")
+            p_col1, p_col2 = st.columns(2)
             
-            st.metric("Sell at Target 1 ($" + str(t1_val) + ")", f"{t1_shares_to_sell:,} Shares")
-            st.write(f"* **Cash Realized:** ${t1_cash_realized:,.2f}")
-            st.write(f"* **Profit Locked In:** ${t1_profit_realized:,.2f}")
-            
-        with p_col2:
-            remaining_shares_after_t1 = final_shares - t1_shares_to_sell
-            t2_sell_pct = st.slider("Target 2 Exit (% of Remaining Position)", 0.0, 100.0, 100.0, step=0.1) / 100.0
-            t2_shares_to_sell = int(remaining_shares_after_t1 * t2_sell_pct)
-            t2_cash_realized = t2_shares_to_sell * t2_val
-            t2_profit_realized = t2_shares_to_sell * (t2_val - price_val)
-            
-            st.metric("Sell at Target 2 ($" + str(t2_val) + ")", f"{t2_shares_to_sell:,} Shares")
-            st.write(f"* **Cash Realized:** ${t2_cash_realized:,.2f}")
-            st.write(f"* **Profit Locked In:** ${t2_profit_realized:,.2f}")
-            
-        total_projected_profit = t1_profit_realized + t2_profit_realized
-        st.success(f"💰 **Total Projected Profit Across Targets:** **${total_projected_profit:,.2f}** ({ (total_projected_profit / final_invested)*100:.2f}% Return on Invested Capital)")
+            with p_col1:
+                t1_sell_pct = st.slider("Target 1 Exit (% of Total Position)", 0.0, 100.0, 33.3, step=0.1) / 100.0
+                t1_shares_to_sell = int(final_shares * t1_sell_pct)
+                t1_cash_realized = t1_shares_to_sell * t1_val
+                t1_profit_realized = t1_shares_to_sell * (t1_val - price_val)
+                
+                st.metric("Sell at Target 1 ($" + str(t1_val) + ")", f"{t1_shares_to_sell:,} Shares")
+                st.write(f"* **Cash Realized:** ${t1_cash_realized:,.2f}")
+                st.write(f"* **Profit Locked In:** ${t1_profit_realized:,.2f}")
+                
+            with p_col2:
+                remaining_shares_after_t1 = final_shares - t1_shares_to_sell
+                t2_sell_pct = st.slider("Target 2 Exit (% of Remaining Position)", 0.0, 100.0, 100.0, step=0.1) / 100.0
+                t2_shares_to_sell = int(remaining_shares_after_t1 * t2_sell_pct)
+                t2_cash_realized = t2_shares_to_sell * t2_val
+                t2_profit_realized = t2_shares_to_sell * (t2_val - price_val)
+                
+                st.metric("Sell at Target 2 ($" + str(t2_val) + ")", f"{t2_shares_to_sell:,} Shares")
+                st.write(f"* **Cash Realized:** ${t2_cash_realized:,.2f}")
+                st.write(f"* **Profit Locked In:** ${t2_profit_realized:,.2f}")
+                
+            total_projected_profit = t1_profit_realized + t2_profit_realized
+            st.success(f"💰 **Total Projected Profit Across Targets:** **${total_projected_profit:,.2f}** ({ (total_projected_profit / final_invested)*100:.2f}% Return on Invested Capital)")
 
     st.html("<br>---")
     st.subheader("🎯 Interactive Structural Chart Window")
-    selected_ticker = st.selectbox("Select Target Node Layer to Visual Map:", scan_df['Ticker'].tolist(), index=scan_df['Ticker'].tolist().index(calc_ticker))
+    
+    chart_ticker = calc_ticker if calc_ticker is not None else scan_df['Ticker'].tolist()[0]
+    selected_ticker = st.selectbox("Select Target Node Layer to Visual Map:", scan_df['Ticker'].tolist(), index=scan_df['Ticker'].tolist().index(chart_ticker))
     
     chart_df = yf.Ticker(selected_ticker).history(period="150d")
     chart_df = calculate_indicators(chart_df)
