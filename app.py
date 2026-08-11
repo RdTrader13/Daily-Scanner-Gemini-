@@ -97,17 +97,14 @@ def calculate_hma(series, length=20):
 
 # --- TECHNICAL INDICATORS ---
 def calculate_indicators(df):
-    # Trend Filters for 4-HMA Strategy
     df['SMA_50'] = df['Close'].rolling(window=50).mean()
     df['SMA_200'] = df['Close'].rolling(window=200).mean()
     
-    # Universal 4-HMA Indicator Cluster (Period 20)
-    df['HMA_Open'] = calculate_hma(df['Open'], 20)   # Yellow Line
-    df['HMA_Close'] = calculate_hma(df['Close'], 20) # White Line
-    df['HMA_High'] = calculate_hma(df['High'], 20)   # Green Line
-    df['HMA_Low'] = calculate_hma(df['Low'], 20)     # Red Line
+    df['HMA_Open'] = calculate_hma(df['Open'], 20)
+    df['HMA_Close'] = calculate_hma(df['Close'], 20)
+    df['HMA_High'] = calculate_hma(df['High'], 20)
+    df['HMA_Low'] = calculate_hma(df['Low'], 20)
     
-    # Baseline EMA/RSI Filters
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
@@ -119,11 +116,9 @@ def calculate_indicators(df):
     rs = avg_gain / (avg_loss + 1e-10)
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # Volume Profiles
     df['Vol_Avg'] = df['Volume'].rolling(window=10).mean()
     df['Relative_Volume'] = df['Volume'] / (df['Vol_Avg'] + 1e-10)
     
-    # ATR
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -151,26 +146,23 @@ def scan_ticker(ticker_symbol):
         bullish_cross = (prev['EMA_9'] <= prev['EMA_21']) and (latest['EMA_9'] > latest['EMA_21'])
         bearish_cross = (prev['EMA_9'] >= prev['EMA_21']) and (latest['EMA_9'] < latest['EMA_21'])
         
-        # --- STRATEGY ROUTING LOGIC ---
         if scan_strategy == "Universal 4-HMA Trend-Following":
             above_smas = (price > latest['SMA_50']) and (price > latest['SMA_200'])
             
-            # Crossover Check 1: Happened Today
             cross_today = (prev['HMA_Close'] <= prev['HMA_Open']) and (latest['HMA_Close'] > latest['HMA_Open'])
-            # Crossover Check 2: Happened Yesterday
             cross_yesterday = (prev_2['HMA_Close'] <= prev_2['HMA_Open']) and (prev['HMA_Close'] > prev['HMA_Open'])
             
             recent_cross = cross_today or cross_yesterday
             hma_close_sloping_up = latest['HMA_Close'] > prev['HMA_Close']
             hma_open_sloping_up = latest['HMA_Open'] > prev['HMA_Open']
             
-            # Bound Band Evaluation Logic
             hma_high = max(latest['HMA_High'], latest['HMA_Low'])
             hma_low = min(latest['HMA_High'], latest['HMA_Low'])
             is_inside_hma_channel = (price >= hma_low) and (price <= hma_high)
             
-            # Initial Stop Loss set to HMA Red Line (Low)
+            # Dynamic strategy stop binding
             stop = latest['HMA_Low']
+            stop_type = "HMA Red Line"
             t1 = price + (risk_amount * target_1_multiplier)
             t2 = price + (risk_amount * target_2_multiplier)
             
@@ -187,6 +179,7 @@ def scan_ticker(ticker_symbol):
                 
         elif scan_strategy == "Squeeze / Penny Stock Multiplier":
             stop = price - risk_amount
+            stop_type = "ATR Envelope"
             t1 = price + (risk_amount * target_1_multiplier)
             t2 = price + (risk_amount * target_2_multiplier)
             if bullish_cross or (is_coiling == "CRITICAL SQUEEZE" and latest['Close'] > latest['EMA_9']):
@@ -194,22 +187,31 @@ def scan_ticker(ticker_symbol):
             else:
                 signal = "⚪ MONITOR COILING EFFECT"
         else:
+            stop_type = "ATR Envelope"
             if bullish_cross and latest['RSI'] > 40:
                 signal = "🟢 BUY TRIGGER"
-                stop, t1, t2 = price - risk_amount, price + (risk_amount * target_1_multiplier), price + (risk_amount * target_2_multiplier)
+                stop = price - risk_amount
+                t1 = price + (risk_amount * target_1_multiplier)
+                t2 = price + (risk_amount * target_2_multiplier)
             elif bearish_cross or (latest['RSI'] > 70 and latest['EMA_9'] < latest['EMA_21']):
                 signal = "🔴 SELL TRIGGER"
-                stop, t1, t2 = price + risk_amount, price - (risk_amount * target_1_multiplier), price - (risk_amount * target_2_multiplier)
+                stop = price + risk_amount
+                t1 = price - (risk_amount * target_1_multiplier)
+                t2 = price - (risk_amount * target_2_multiplier)
             elif latest['EMA_9'] > latest['EMA_21']:
                 signal = "🟡 HOLD (Bullish Trend)"
-                stop, t1, t2 = price - risk_amount, price + (risk_amount * target_1_multiplier), price + (risk_amount * target_2_multiplier)
+                stop = price - risk_amount
+                t1 = price + (risk_amount * target_1_multiplier)
+                t2 = price + (risk_amount * target_2_multiplier)
             else:
                 signal = "⚪ HOLD (Bearish/Cash)"
-                stop, t1, t2 = price + risk_amount, price - (risk_amount * target_1_multiplier), price - (risk_amount * target_2_multiplier)
+                stop = price + risk_amount
+                t1 = price - (risk_amount * target_1_multiplier)
+                t2 = price - (risk_amount * target_2_multiplier)
             
         return {
             "Ticker": ticker_symbol, "Price": round(price, 2), "Signal": signal,
-            "HMA Red Stop": round(latest['HMA_Low'], 2) if scan_strategy == "Universal 4-HMA Trend-Following" else round(stop, 2),
+            "Calculated Stop": round(stop, 2), "Stop Type": stop_type,
             "Target 1": round(t1, 2), "Target 2": round(t2, 2),
             "50 SMA": round(latest['SMA_50'], 2), "200 SMA": round(latest['SMA_200'], 2),
             "RSI": round(latest['RSI'], 1), "Compression Status": is_coiling
@@ -250,14 +252,101 @@ if st.session_state.get('run_success'):
     st.dataframe(scan_df, use_container_width=True, height=350)
     
     st.html("<br>---")
+    
+    # --- POSITION SIZING & RISK CALCULATOR WIDGET ---
+    st.subheader("🧮 Dynamic Position Sizing & Target Exit Engine")
+    
+    calc_col1, calc_col2 = st.columns([1, 1.2])
+    
+    with calc_col1:
+        calc_ticker = st.selectbox("Select Asset from Scanned List:", scan_df['Ticker'].tolist(), key="calc_select")
+        ticker_data = scan_df[scan_df['Ticker'] == calc_ticker].iloc[0]
+        
+        price_val = float(ticker_data['Price'])
+        stop_val = float(ticker_data['Calculated Stop'])
+        stop_type_label = str(ticker_data['Stop Type'])
+        t1_val = float(ticker_data['Target 1'])
+        t2_val = float(ticker_data['Target 2'])
+        
+        risk_per_share = max(price_val - stop_val, 0.01)
+        
+        st.info(f"**Asset:** {calc_ticker} | **Current Price:** ${price_val:.2f} | **{stop_type_label} Stop:** ${stop_val:.2f} | **Risk/Share:** ${risk_per_share:.2f}")
+        
+        acc_balance = st.number_input("Account Balance ($)", min_value=100.0, value=10000.0, step=500.0)
+        avail_cash = st.number_input("Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
+        risk_pct = st.slider("Account Risk Tolerance per Trade (%)", min_value=0.25, max_value=5.0, value=1.0, step=0.25) / 100.0
+        max_cap_pct = st.slider("Max Portfolio Allocation per Asset (%)", min_value=1.0, max_value=50.0, value=10.0, step=1.0) / 100.0
+
+    with calc_col2:
+        dollar_risk_allowed = acc_balance * risk_pct
+        max_capital_allowed = acc_balance * max_cap_pct
+        
+        shares_by_risk = int(dollar_risk_allowed / risk_per_share)
+        shares_by_cap = int(max_capital_allowed / price_val)
+        shares_by_cash = int(avail_cash / price_val)
+        
+        final_shares = max(0, min(shares_by_risk, shares_by_cap, shares_by_cash))
+        final_invested = final_shares * price_val
+        final_actual_risk = final_shares * risk_per_share
+        
+        if final_shares == shares_by_risk:
+            determining_factor = "🛡️ **Risk Tolerance Limit** (Stopped out at exact risk budget)"
+        elif final_shares == shares_by_cap:
+            determining_factor = "🔒 **Capital Allocation Cap** (Prevents over-concentration)"
+        else:
+            determining_factor = "💵 **Available Cash Limit** (Restricted by liquid funds)"
+            
+        st.markdown("### **Entry Position Allocation**")
+        m1, m2 = st.columns(2)
+        m1.metric("Recommended Share Count", f"{final_shares:,} Shares")
+        m2.metric("Total Capital Invested", f"${final_invested:,.2f} ({ (final_invested/acc_balance)*100:.1f}%)")
+        
+        m3, m4 = st.columns(2)
+        m3.metric("Max Dollar Risk", f"${final_actual_risk:,.2f} ({ (final_actual_risk/acc_balance)*100:.2f}%)")
+        m4.metric("Max Risk Budget", f"${dollar_risk_allowed:,.2f}")
+        
+        st.write(f"**Primary Sizing Constraint:** {determining_factor}")
+
+    # --- TOGGLEABLE PARTIAL TAKE-PROFIT EXIT ENGINE ---
+    st.write("---")
+    show_exit_calc = st.checkbox("🎯 Enable Partial Take-Profit Exit Calculator", value=True)
+    
+    if show_exit_calc and final_shares > 0:
+        st.markdown("#### **Partial Exit Realization Strategy**")
+        p_col1, p_col2 = st.columns(2)
+        
+        with p_col1:
+            t1_sell_pct = st.slider("Target 1 Exit (% of Total Position)", 0.0, 100.0, 33.3, step=0.1) / 100.0
+            t1_shares_to_sell = int(final_shares * t1_sell_pct)
+            t1_cash_realized = t1_shares_to_sell * t1_val
+            t1_profit_realized = t1_shares_to_sell * (t1_val - price_val)
+            
+            st.metric("Sell at Target 1 ($" + str(t1_val) + ")", f"{t1_shares_to_sell:,} Shares")
+            st.write(f"* **Cash Realized:** ${t1_cash_realized:,.2f}")
+            st.write(f"* **Profit Locked In:** ${t1_profit_realized:,.2f}")
+            
+        with p_col2:
+            remaining_shares_after_t1 = final_shares - t1_shares_to_sell
+            t2_sell_pct = st.slider("Target 2 Exit (% of Remaining Position)", 0.0, 100.0, 100.0, step=0.1) / 100.0
+            t2_shares_to_sell = int(remaining_shares_after_t1 * t2_sell_pct)
+            t2_cash_realized = t2_shares_to_sell * t2_val
+            t2_profit_realized = t2_shares_to_sell * (t2_val - price_val)
+            
+            st.metric("Sell at Target 2 ($" + str(t2_val) + ")", f"{t2_shares_to_sell:,} Shares")
+            st.write(f"* **Cash Realized:** ${t2_cash_realized:,.2f}")
+            st.write(f"* **Profit Locked In:** ${t2_profit_realized:,.2f}")
+            
+        total_projected_profit = t1_profit_realized + t2_profit_realized
+        st.success(f"💰 **Total Projected Profit Across Targets:** **${total_projected_profit:,.2f}** ({ (total_projected_profit / final_invested)*100:.2f}% Return on Invested Capital)")
+
+    st.html("<br>---")
     st.subheader("🎯 Interactive Structural Chart Window")
-    selected_ticker = st.selectbox("Select Target Node Layer to Visual Map:", scan_df['Ticker'].tolist())
+    selected_ticker = st.selectbox("Select Target Node Layer to Visual Map:", scan_df['Ticker'].tolist(), index=scan_df['Ticker'].tolist().index(calc_ticker))
     
     chart_df = yf.Ticker(selected_ticker).history(period="150d")
     chart_df = calculate_indicators(chart_df)
     row = scan_df[scan_df['Ticker'] == selected_ticker].iloc[0]
     
-    # Render Plots
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'], name="Price Structure"))
     
@@ -271,7 +360,7 @@ if st.session_state.get('run_success'):
     else:
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_9'], line=dict(color='orange', width=1.5), name="9 EMA"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_21'], line=dict(color='cyan', width=1.5), name="21 EMA"))
-        fig.add_hline(y=row['HMA Red Stop'], line_dash="dash", line_color="red", annotation_text="Calculated Stop Placement")
+        fig.add_hline(y=row['Calculated Stop'], line_dash="dash", line_color="red", annotation_text="Calculated Stop Placement")
         fig.add_hline(y=row['Target 1'], line_dash="dash", line_color="lightgreen", annotation_text="Target 1 Horizon Line")
         fig.add_hline(y=row['Target 2'], line_dash="dash", line_color="green", annotation_text="Target 2 Horizon Line")
     
