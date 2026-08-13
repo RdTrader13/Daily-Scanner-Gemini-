@@ -35,7 +35,8 @@ st.html(header_html)
 st.sidebar.header("🎯 Strategy Mode")
 scan_strategy = st.sidebar.radio(
     "Select Scanning Framework:",
-    ["Universal 4-HMA Trend-Following", "Large Cap Core Matrix", "Squeeze / Penny Stock Multiplier"]
+    ["Universal 4-HMA Trend-Following", "Large Cap Core Matrix", "Squeeze / Penny Stock Multiplier"],
+    key="strategy_choice"
 )
 
 # --- TICKER SOURCE CONFIGURATION ---
@@ -47,25 +48,26 @@ if scan_strategy == "Squeeze / Penny Stock Multiplier":
     st.sidebar.header("📁 Squeeze Asset Array")
     penny_input = st.sidebar.text_area(
         "Speculative Screener Nodes:", 
-        "SOUN, BBAI, LCID, GRND, NKLA, NIO, OPEN, SOFI, PTON, MARA, RIOT, CLSK, HUT, CLOV, MQ, NXDR"
+        "SOUN, BBAI, LCID, GRND, NKLA, NIO, OPEN, SOFI, PTON, MARA, RIOT, CLSK, HUT, CLOV, MQ, NXDR",
+        key="penny_input_key"
     )
     tickers = list(dict.fromkeys([t.strip().upper() for t in penny_input.split(",") if t.strip()]))
     max_price_filter = 15.00
 else:
     st.sidebar.header("📁 Core Matrix Framework")
-    source_type = st.sidebar.radio("Data Source Configuration:", ["Custom Watchlist", "Top ETFs Array", "Full S&P 500 Index", "Dow Jones 30"])
+    source_type = st.sidebar.radio("Data Source Configuration:", ["Custom Watchlist", "Top ETFs Array", "Full S&P 500 Index", "Dow Jones 30"], key="source_type_key")
 
     if source_type == "Custom Watchlist":
         default_watchlist = "AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL, LLY, JPM"
-        watchlist_input = st.sidebar.text_area("Edit Watchlist Arrays:", default_watchlist)
+        watchlist_input = st.sidebar.text_area("Edit Watchlist Arrays:", default_watchlist, key="watchlist_input_key")
         tickers = list(dict.fromkeys([t.strip().upper() for t in watchlist_input.split(",") if t.strip()]))
     elif source_type == "Top ETFs Array":
         raw_etfs = list(dict.fromkeys(TOP_ETFS))
-        max_scan = st.sidebar.slider("ETF Scan Processing Depth:", 5, len(raw_etfs), 30)
+        max_scan = st.sidebar.slider("ETF Scan Processing Depth:", 5, len(raw_etfs), 30, key="etf_scan_depth_key")
         tickers = raw_etfs[:max_scan]
     elif source_type == "Full S&P 500 Index":
         raw_tickers = list(dict.fromkeys(FULL_SP500))
-        max_scan = st.sidebar.slider("Scan Processing Depth:", 5, len(raw_tickers), 20)
+        max_scan = st.sidebar.slider("Scan Processing Depth:", 5, len(raw_tickers), 20, key="sp_scan_depth_key")
         tickers = raw_tickers[:max_scan]
     else:
         tickers = list(dict.fromkeys(DOW_30))
@@ -73,13 +75,13 @@ else:
 
 st.sidebar.write("---")
 st.sidebar.header("⚙️ Risk Parameters")
-atr_period = st.sidebar.slider("ATR Measurement Lookback", 5, 30, 14)
-risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (Stops)", 1.0, 4.0, 1.5, step=0.1)
+atr_period = st.sidebar.slider("ATR Measurement Lookback", 5, 30, 14, key="atr_period_key")
+risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (Stops)", 1.0, 4.0, 1.5, step=0.1, key="risk_multiplier_key")
 
 st.sidebar.write("---")
 st.sidebar.header("🎯 Target Horizon Multipliers")
-target_1_multiplier = st.sidebar.slider("Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1)
-target_2_multiplier = st.sidebar.slider("Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1)
+target_1_multiplier = st.sidebar.slider("Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key")
+target_2_multiplier = st.sidebar.slider("Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key")
 
 
 # --- HMA MATH CALCULATOR ---
@@ -260,7 +262,7 @@ if st.session_state.get('run_success'):
     with calc_col1:
         # 1. Signal Category Filter
         available_signals = ["Show All Categories"] + sorted(scan_df['Signal'].unique().tolist())
-        selected_signal_filter = st.selectbox("Filter Assets by Signal State:", available_signals)
+        selected_signal_filter = st.selectbox("Filter Assets by Signal State:", available_signals, key="signal_filter_key")
         
         if selected_signal_filter != "Show All Categories":
             filtered_calc_df = scan_df[scan_df['Signal'] == selected_signal_filter]
@@ -269,7 +271,7 @@ if st.session_state.get('run_success'):
             
         # 2. Filtered Stock Selection
         if not filtered_calc_df.empty:
-            calc_ticker = st.selectbox("Select Asset from Scanned List:", filtered_calc_df['Ticker'].tolist(), key="calc_select")
+            calc_ticker = st.selectbox("Select Asset from Scanned List:", filtered_calc_df['Ticker'].tolist(), key="calc_select_key")
             ticker_data = filtered_calc_df[filtered_calc_df['Ticker'] == calc_ticker].iloc[0]
             
             price_val = float(ticker_data['Price'])
@@ -282,10 +284,18 @@ if st.session_state.get('run_success'):
             
             st.info(f"**Asset:** {calc_ticker} | **Current Price:** ${price_val:.2f} | **{stop_type_label} Stop:** ${stop_val:.2f} | **Risk/Share:** ${risk_per_share:.2f}")
             
-            acc_balance = st.number_input("Account Balance ($)", min_value=100.0, value=10000.0, step=500.0)
-            avail_cash = st.number_input("Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
-            risk_pct = st.slider("Account Risk Tolerance per Trade (%)", min_value=0.25, max_value=5.0, value=1.0, step=0.25) / 100.0
-            max_cap_pct = st.slider("Max Portfolio Allocation per Asset (%)", min_value=1.0, max_value=50.0, value=10.0, step=1.0) / 100.0
+            acc_balance = st.number_input("Total Account Balance ($)", min_value=100.0, value=10000.0, step=500.0, key="acc_balance_key")
+            avail_cash = st.number_input("Available Cash ($)", min_value=0.0, value=5000.0, step=500.0, key="avail_cash_key")
+            risk_pct = st.slider("Account Risk Tolerance per Trade (%)", min_value=0.25, max_value=5.0, value=1.0, step=0.25, key="risk_pct_slider_key") / 100.0
+            
+            # CAPITAL ALLOCATION CAP TOGGLE
+            alloc_base_choice = st.radio(
+                "Capital Allocation Cap Base:",
+                ["Total Account Balance", "Available Cash"],
+                horizontal=True,
+                key="alloc_base_choice_key"
+            )
+            max_cap_pct = st.slider("Max Capital Allocation per Asset (%)", min_value=1.0, max_value=50.0, value=10.0, step=1.0, key="max_cap_pct_slider_key") / 100.0
         else:
             st.warning("No assets match the selected signal state filter.")
             calc_ticker = None
@@ -293,7 +303,13 @@ if st.session_state.get('run_success'):
     with calc_col2:
         if calc_ticker is not None:
             dollar_risk_allowed = acc_balance * risk_pct
-            max_capital_allowed = acc_balance * max_cap_pct
+            
+            if alloc_base_choice == "Total Account Balance":
+                max_capital_allowed = acc_balance * max_cap_pct
+                cap_label_text = f"Total Account Cap ({max_cap_pct*100:.0f}%)"
+            else:
+                max_capital_allowed = avail_cash * max_cap_pct
+                cap_label_text = f"Available Cash Cap ({max_cap_pct*100:.0f}%)"
             
             shares_by_risk = int(dollar_risk_allowed / risk_per_share)
             shares_by_cap = int(max_capital_allowed / price_val)
@@ -306,14 +322,14 @@ if st.session_state.get('run_success'):
             if final_shares == shares_by_risk:
                 determining_factor = "🛡️ **Risk Tolerance Limit** (Stopped out at exact risk budget)"
             elif final_shares == shares_by_cap:
-                determining_factor = "🔒 **Capital Allocation Cap** (Prevents over-concentration)"
+                determining_factor = f"🔒 **Capital Allocation Cap** ({cap_label_text})"
             else:
                 determining_factor = "💵 **Available Cash Limit** (Restricted by liquid funds)"
                 
             st.markdown("### **Entry Position Allocation**")
             m1, m2 = st.columns(2)
             m1.metric("Recommended Share Count", f"{final_shares:,} Shares")
-            m2.metric("Total Capital Invested", f"${final_invested:,.2f} ({ (final_invested/acc_balance)*100:.1f}%)")
+            m2.metric("Total Capital Invested", f"${final_invested:,.2f} ({ (final_invested/acc_balance)*100:.1f}% of Account)")
             
             m3, m4 = st.columns(2)
             m3.metric("Max Dollar Risk", f"${final_actual_risk:,.2f} ({ (final_actual_risk/acc_balance)*100:.2f}%)")
@@ -324,30 +340,30 @@ if st.session_state.get('run_success'):
     # --- TOGGLEABLE PARTIAL TAKE-PROFIT EXIT ENGINE ---
     if calc_ticker is not None:
         st.write("---")
-        show_exit_calc = st.checkbox("🎯 Enable Partial Take-Profit Exit Calculator", value=True)
+        show_exit_calc = st.checkbox("🎯 Enable Partial Take-Profit Exit Calculator", value=True, key="show_exit_calc_key")
         
         if show_exit_calc and final_shares > 0:
             st.markdown("#### **Partial Exit Realization Strategy**")
             p_col1, p_col2 = st.columns(2)
             
             with p_col1:
-                t1_sell_pct = st.slider("Target 1 Exit (% of Total Position)", 0.0, 100.0, 33.3, step=0.1) / 100.0
+                t1_sell_pct = st.slider("Target 1 Exit (% of Total Position)", 0.0, 100.0, 33.3, step=0.1, key="t1_sell_pct_key") / 100.0
                 t1_shares_to_sell = int(final_shares * t1_sell_pct)
                 t1_cash_realized = t1_shares_to_sell * t1_val
                 t1_profit_realized = t1_shares_to_sell * (t1_val - price_val)
                 
-                st.metric("Sell at Target 1 ($" + str(t1_val) + ")", f"{t1_shares_to_sell:,} Shares")
+                st.metric(f"Sell at Target 1 (${t1_val:.2f})", f"{t1_shares_to_sell:,} Shares")
                 st.write(f"* **Cash Realized:** ${t1_cash_realized:,.2f}")
                 st.write(f"* **Profit Locked In:** ${t1_profit_realized:,.2f}")
                 
             with p_col2:
                 remaining_shares_after_t1 = final_shares - t1_shares_to_sell
-                t2_sell_pct = st.slider("Target 2 Exit (% of Remaining Position)", 0.0, 100.0, 100.0, step=0.1) / 100.0
+                t2_sell_pct = st.slider("Target 2 Exit (% of Remaining Position)", 0.0, 100.0, 100.0, step=0.1, key="t2_sell_pct_key") / 100.0
                 t2_shares_to_sell = int(remaining_shares_after_t1 * t2_sell_pct)
                 t2_cash_realized = t2_shares_to_sell * t2_val
                 t2_profit_realized = t2_shares_to_sell * (t2_val - price_val)
                 
-                st.metric("Sell at Target 2 ($" + str(t2_val) + ")", f"{t2_shares_to_sell:,} Shares")
+                st.metric(f"Sell at Target 2 (${t2_val:.2f})", f"{t2_shares_to_sell:,} Shares")
                 st.write(f"* **Cash Realized:** ${t2_cash_realized:,.2f}")
                 st.write(f"* **Profit Locked In:** ${t2_profit_realized:,.2f}")
                 
@@ -358,7 +374,7 @@ if st.session_state.get('run_success'):
     st.subheader("🎯 Interactive Structural Chart Window")
     
     chart_ticker = calc_ticker if calc_ticker is not None else scan_df['Ticker'].tolist()[0]
-    selected_ticker = st.selectbox("Select Target Node Layer to Visual Map:", scan_df['Ticker'].tolist(), index=scan_df['Ticker'].tolist().index(chart_ticker))
+    selected_ticker = st.selectbox("Select Target Node Layer to Visual Map:", scan_df['Ticker'].tolist(), index=scan_df['Ticker'].tolist().index(chart_ticker), key="chart_ticker_select_key")
     
     chart_df = yf.Ticker(selected_ticker).history(period="150d")
     chart_df = calculate_indicators(chart_df)
