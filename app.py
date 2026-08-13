@@ -158,6 +158,9 @@ def scan_ticker(ticker_symbol):
             hma_close_sloping_up = latest['HMA_Close'] > prev['HMA_Close']
             hma_open_sloping_up = latest['HMA_Open'] > prev['HMA_Open']
             
+            # --- MOMENTUM CONFIRMATION CONDITION ---
+            closed_above_white = price > latest['HMA_Close']
+            
             hma_high = max(latest['HMA_High'], latest['HMA_Low'])
             hma_low = min(latest['HMA_High'], latest['HMA_Low'])
             is_inside_hma_channel = (price >= hma_low) and (price <= hma_high)
@@ -167,8 +170,8 @@ def scan_ticker(ticker_symbol):
             t1 = price + (risk_amount * target_1_multiplier)
             t2 = price + (risk_amount * target_2_multiplier)
             
-            if above_smas and recent_cross and hma_close_sloping_up and hma_open_sloping_up:
-                signal = "🟢 4-HMA BUY ENTRY (Recent Cross)"
+            if above_smas and recent_cross and hma_close_sloping_up and hma_open_sloping_up and closed_above_white:
+                signal = "🟢 4-HMA BUY ENTRY (Recent Cross + Momentum Confirmed)"
             elif price < latest['HMA_Low']:
                 signal = "🔴 4-HMA EXIT TRIGGER"
             elif is_inside_hma_channel:
@@ -237,7 +240,7 @@ if st.session_state.get('run_success'):
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Nodes Evaluated", len(scan_df))
     if scan_strategy == "Universal 4-HMA Trend-Following":
-        c2.metric("🟢 Fresh Buy Entries", len(scan_df[scan_df['Signal'].str.contains("Recent Cross")]))
+        c2.metric("🟢 Confirmed Buy Entries", len(scan_df[scan_df['Signal'].str.contains("BUY ENTRY")]))
         c3.metric("🟡 Trend Holds", len(scan_df[scan_df['Signal'].str.contains("BULLISH TREND|Consolidating")]))
         c4.metric("🔴 Exit Alerts", len(scan_df[scan_df['Signal'] == "🔴 4-HMA EXIT TRIGGER"]))
     elif scan_strategy == "Large Cap Core Matrix":
