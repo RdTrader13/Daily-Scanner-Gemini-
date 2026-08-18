@@ -51,6 +51,17 @@ def init_db():
             notes TEXT
         )
     ''')
+    # Account Snapshots Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS account_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT NOT NULL,
+            cash_balance REAL NOT NULL,
+            position_value REAL NOT NULL,
+            total_account_value REAL NOT NULL,
+            notes TEXT
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -313,6 +324,15 @@ if app_mode == "⚡ AlphaScan Engine":
                         INSERT INTO active_positions (ticker, strategy, entry_date, budget_price, actual_fill_price, shares, stop_loss, target_1, target_2, notes)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (calc_ticker, scan_strategy, str(entry_date_input), budget_price_val, actual_fill_price_input, final_shares, stop_val, t1_val, t2_val, trade_notes))
+                    
+                    # Log Account Snapshot automatically
+                    pos_cost = actual_fill_price_input * final_shares
+                    new_cash = max(0.0, avail_cash - pos_cost)
+                    c.execute('''
+                        INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (str(entry_date_input), new_cash, pos_cost, acc_balance, f"Opened Position: {calc_ticker}"))
+                    
                     conn.commit()
                     conn.close()
                     st.success(f"✅ Position for {calc_ticker} logged successfully to active portfolio!")
@@ -331,13 +351,8 @@ elif app_mode == "💼 Active Portfolio Manager":
         st.info("No active positions tracked. Open positions using the AlphaScan Engine scanner.")
     else:
         st.write("### **Live Open Positions**")
-        
-        # Calculate Live Slippage
         df_active['Fill_Slippage_$'] = df_active['actual_fill_price'] - df_active['budget_price']
-        df_active['Fill_Slippage_%'] = (df_active['Fill_Slippage_$'] / df_active['budget_price']) * 100
         
-        # Interactive Editing Table for Stop Loss
-        st.markdown("✏️ **Update Stop Loss or Position Notes directly in table:**")
         edited_df = st.data_editor(
             df_active[['id', 'ticker', 'strategy', 'entry_date', 'budget_price', 'actual_fill_price', 'Fill_Slippage_$', 'shares', 'stop_loss', 'target_1', 'target_2', 'notes']],
             disabled=['id', 'ticker', 'strategy', 'entry_date', 'budget_price', 'actual_fill_price', 'Fill_Slippage_$', 'shares', 'target_1', 'target_2'],
@@ -378,12 +393,10 @@ elif app_mode == "💼 Active Portfolio Manager":
         if st.button("🔒 Confirm Exit & Transfer to Trader Journal", type="primary"):
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
-            # Move to journal
             c.execute('''
                 INSERT INTO trade_journal (ticker, strategy, entry_date, exit_date, holding_days, budget_price, actual_fill_price, exit_price, shares, realized_pnl, pnl_pct, slippage, notes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (selected_pos['ticker'], selected_pos['strategy'], selected_pos['entry_date'], str(exit_date), holding_days, selected_pos['budget_price'], selected_pos['actual_fill_price'], exit_price, shares, realized_pnl, pnl_pct, slippage, selected_pos['notes']))
-            # Delete from active
             c.execute("DELETE FROM active_positions WHERE id = ?", (pos_id_to_close,))
             conn.commit()
             conn.close()
@@ -398,51 +411,84 @@ else:
     
     conn = sqlite3.connect(DB_FILE)
     df_journal = pd.read_sql_query("SELECT * FROM trade_journal", conn)
+    df_active = pd.read_sql_query("SELECT * FROM active_positions", conn)
+    df_snapshots = pd.read_sql_query("SELECT * FROM account_snapshots", conn)
     conn.close()
     
-    if df_journal.empty:
-        st.info("No completed trades logged in journal yet. Close positions in Portfolio Manager to build historical performance stats.")
+    # MANUAL SNAPSHOT LOGGER CONTROLS
+    with st.expander("📸 Manual Account Balance & Liquidity Snapshot Tool", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        snap_cash = c1.number_input("Liquid Cash ($)", min_value=0.0, value=5000.0, step=500.0)
+        snap_positions = c2.number_input("Active Position Value ($)", min_value=0.0, value=5000.0, step=500.0)
+        snap_notes = c3.text_input("Snapshot Context Note", value="Periodic Balance Check")
+        
+        if st.button("💾 Record Balance Snapshot"):
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (str(datetime.today().date()), snap_cash, snap_positions, snap_cash + snap_positions, snap_notes))
+            conn.commit()
+            conn.close()
+            st.success("Account snapshot recorded!")
+            st.rerun()
+
+    if df_journal.empty and df_snapshots.empty:
+        st.info("No historical journal trades or balance snapshots logged yet. Execute scans and record snapshots to populate charts.")
     else:
         # Key Performance Metrics
         total_trades = len(df_journal)
-        winning_trades = len(df_journal[df_journal['realized_pnl'] > 0])
-        win_rate = (winning_trades / total_trades) * 100
-        net_pnl = df_journal['realized_pnl'].sum()
+        winning_trades = len(df_journal[df_journal['realized_pnl'] > 0]) if not df_journal.empty else 0
+        win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0.0
+        net_pnl = df_journal['realized_pnl'].sum() if not df_journal.empty else 0.0
         
-        gross_profit = df_journal[df_journal['realized_pnl'] > 0]['realized_pnl'].sum()
-        gross_loss = abs(df_journal[df_journal['realized_pnl'] < 0]['realized_pnl'].sum())
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else 1.0)
-        
-        m1, m2, m3, m4 = st.columns(4)
+        m1, m2, m3 = st.columns(3)
         m1.metric("Net Realized P&L", f"${net_pnl:,.2f}")
-        m2.metric("Win Rate %", f"{win_rate:.1f}%", f"{winning_trades}/{total_trades} Wins")
-        m3.metric("Profit Factor", f"{profit_factor:.2f}")
-        m4.metric("Avg Execution Slippage", f"${df_journal['slippage'].mean():.2f}")
+        m2.metric("Win Rate %", f"{win_rate:.1f}%")
+        m3.metric("Avg Execution Slippage", f"${df_journal['slippage'].mean():.2f}" if not df_journal.empty else "$0.00")
         
         st.write("---")
-        st.markdown("### 📊 **Strategy Performance Breakdown (Days in Trade & Returns)**")
+        st.markdown("### 📊 **Total Portfolio Balance & Liquidity Area Chart**")
         
-        # Strategy Aggregation Table
-        strategy_stats = df_journal.groupby('strategy').agg(
-            Total_Trades=('id', 'count'),
-            Win_Rate=('realized_pnl', lambda x: f"{(sum(x > 0) / len(x))*100:.1f}%"),
-            Total_Realized_PnL=('realized_pnl', 'sum'),
-            Avg_Days_In_Trade=('holding_days', 'mean'),
-            Avg_Slippage=('slippage', 'mean')
-        ).reset_index()
-        
-        st.dataframe(strategy_stats, use_container_width=True)
-        
-        st.write("---")
-        st.markdown("### 📈 **Cumulative Equity Curve**")
-        df_journal['exit_date_dt'] = pd.to_datetime(df_journal['exit_date'])
-        df_sorted = df_journal.sort_values('exit_date_dt')
-        df_sorted['Cumulative_PnL'] = df_sorted['realized_pnl'].cumsum()
-        
-        fig = px.line(df_sorted, x='exit_date_dt', y='Cumulative_PnL', title="Cumulative Realized Equity Growth ($)", markers=True)
-        fig.update_layout(template="plotly_dark", height=400)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.write("---")
-        st.markdown("### 📜 **Historical Trade Log Database**")
-        st.dataframe(df_journal, use_container_width=True)
+        if not df_snapshots.empty:
+            df_snapshots['snapshot_date_dt'] = pd.to_datetime(df_snapshots['snapshot_date'])
+            df_snaps_sorted = df_snapshots.sort_values('snapshot_date_dt')
+            
+            fig = go.Figure()
+            # Shadow fill traces
+            fig.add_trace(go.Scatter(
+                x=df_snaps_sorted['snapshot_date_dt'], y=df_snaps_sorted['cash_balance'],
+                name="Liquid Cash Balance ($)", mode='lines', stackgroup='one',
+                line=dict(width=0.5, color='#3B82F6'), fillcolor='rgba(59, 130, 246, 0.4)'
+            ))
+            fig.add_trace(go.Scatter(
+                x=df_snaps_sorted['snapshot_date_dt'], y=df_snaps_sorted['position_value'],
+                name="Active Position Value ($)", mode='lines', stackgroup='one',
+                line=dict(width=0.5, color='#F59E0B'), fillcolor='rgba(245, 158, 11, 0.4)'
+            ))
+            # Total Balance line overlay
+            fig.add_trace(go.Scatter(
+                x=df_snaps_sorted['snapshot_date_dt'], y=df_snaps_sorted['total_account_value'],
+                name="Total Account Equity ($)", mode='lines+markers',
+                line=dict(color='#10B981', width=3)
+            ))
+            fig.update_layout(title="Account Equity Breakdown (Cash + Position Exposure)", template="plotly_dark", height=450)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Log balance snapshots to render portfolio area chart.")
+
+        if not df_journal.empty:
+            st.write("---")
+            st.markdown("### 📈 **Strategy Performance Breakdown**")
+            strategy_stats = df_journal.groupby('strategy').agg(
+                Total_Trades=('id', 'count'),
+                Win_Rate=('realized_pnl', lambda x: f"{(sum(x > 0) / len(x))*100:.1f}%"),
+                Total_PnL=('realized_pnl', 'sum'),
+                Avg_Days=('holding_days', 'mean')
+            ).reset_index()
+            st.dataframe(strategy_stats, use_container_width=True)
+            
+            st.write("---")
+            st.markdown("### 📜 **Trade Journal Records**")
+            st.dataframe(df_journal, use_container_width=True)
