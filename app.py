@@ -1,11 +1,3 @@
-Adding a selector for exit styles gives you total flexibility to switch between locking in structured profit targets and riding pure, uncapped trends.
-### **What Was Added**
- * **Exit Mode Selector:** Choose between **"Hybrid Scale-Out (Fixed Targets + Trail)"** and **"Pure Trailing Exit (No Fixed Targets)"** in the sidebar.
- * **Dynamic Table Adjustments:** When set to *Pure Trailing Exit*, the Target columns dynamically update to display **"PURE TRAIL"**, keeping your scanner focused strictly on your trailing stop level.
- * **Adaptive Position Sizing Engine:** The calculator adjusts automatically based on your active mode, focusing purely on risk and total share allocation when targets are disabled.
-## 💻 Overwrite Code (app.py)
-Copy and paste this updated script into your app.py file:
-```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -457,5 +449,3 @@ if st.session_state.get('run_success'):
     
     fig.update_layout(title=f"{selected_ticker} Technical Execution Geometry Map", template="plotly_dark", xaxis_rangeslider_visible=False, height=520)
     st.plotly_chart(fig, use_container_width=True)
-
-```
