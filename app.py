@@ -1,3 +1,11 @@
+Adding a selector for exit styles gives you total flexibility to switch between locking in structured profit targets and riding pure, uncapped trends.
+### **What Was Added**
+ * **Exit Mode Selector:** Choose between **"Hybrid Scale-Out (Fixed Targets + Trail)"** and **"Pure Trailing Exit (No Fixed Targets)"** in the sidebar.
+ * **Dynamic Table Adjustments:** When set to *Pure Trailing Exit*, the Target columns dynamically update to display **"PURE TRAIL"**, keeping your scanner focused strictly on your trailing stop level.
+ * **Adaptive Position Sizing Engine:** The calculator adjusts automatically based on your active mode, focusing purely on risk and total share allocation when targets are disabled.
+## 💻 Overwrite Code (app.py)
+Copy and paste this updated script into your app.py file:
+```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -87,14 +95,29 @@ if scan_strategy == "Universal 4-HMA Trend-Following":
     if hma_stop_mode == "ATR Multiplier":
         risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (ATR)", 0.5, 5.0, 1.5, step=0.1, key="risk_multiplier_key")
     else:
-        risk_multiplier = 1.5  # Default baseline for target multipliers
+        risk_multiplier = 1.5
+        
+    st.sidebar.write("---")
+    st.sidebar.header("🎯 Exit Strategy Selector")
+    exit_style = st.sidebar.radio(
+        "Select Exit Methodology:",
+        ["Hybrid Scale-Out (Fixed Targets + Trail)", "Pure Trailing Exit (No Fixed Targets)"],
+        key="exit_style_key"
+    )
+    
+    if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)":
+        target_1_multiplier = st.sidebar.slider("Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key")
+        target_2_multiplier = st.sidebar.slider("Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key")
+    else:
+        target_1_multiplier = None
+        target_2_multiplier = None
 else:
+    exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
     risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (Stops)", 1.0, 4.0, 1.5, step=0.1, key="risk_multiplier_key")
-
-st.sidebar.write("---")
-st.sidebar.header("🎯 Target Horizon Multipliers")
-target_1_multiplier = st.sidebar.slider("Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key")
-target_2_multiplier = st.sidebar.slider("Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key")
+    st.sidebar.write("---")
+    st.sidebar.header("🎯 Target Horizon Multipliers")
+    target_1_multiplier = st.sidebar.slider("Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key")
+    target_2_multiplier = st.sidebar.slider("Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key")
 
 
 # --- HMA MATH CALCULATOR ---
@@ -176,14 +199,10 @@ def scan_ticker(ticker_symbol):
             hma_low = min(latest['HMA_High'], latest['HMA_Low'])
             is_inside_hma_channel = (price >= hma_low) and (price <= hma_high)
             
-            # --- DYNAMIC STOP LOSS CALCULATION LOGIC ---
+            # Dynamic Stop Calculation
             red_hma_df = df[df['HMA_Close'] < df['HMA_Open']]
-            
             if hma_stop_mode == "Most Recent Red HMA Low":
-                if not red_hma_df.empty:
-                    stop = red_hma_df.iloc[-1]['HMA_Low']
-                else:
-                    stop = latest['HMA_Low']
+                stop = red_hma_df.iloc[-1]['HMA_Low'] if not red_hma_df.empty else latest['HMA_Low']
                 stop_type = "Most Recent Red HMA Low"
             elif hma_stop_mode == "2nd Most Recent Red HMA Low":
                 if len(red_hma_df) >= 2:
@@ -198,8 +217,13 @@ def scan_ticker(ticker_symbol):
                 stop_type = f"ATR Multiplier ({risk_multiplier}x)"
             
             risk_per_share = max(price - stop, 0.01)
-            t1 = price + (risk_per_share * target_1_multiplier)
-            t2 = price + (risk_per_share * target_2_multiplier)
+            
+            if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)":
+                t1_val = round(price + (risk_per_share * target_1_multiplier), 2)
+                t2_val = round(price + (risk_per_share * target_2_multiplier), 2)
+            else:
+                t1_val = "PURE TRAIL"
+                t2_val = "PURE TRAIL"
             
             if above_smas and recent_cross and hma_close_sloping_up and hma_open_sloping_up and closed_above_white:
                 signal = "🟢 4-HMA BUY ENTRY (Recent Cross + Momentum Confirmed)"
@@ -215,8 +239,8 @@ def scan_ticker(ticker_symbol):
         elif scan_strategy == "Squeeze / Penny Stock Multiplier":
             stop = price - risk_amount
             stop_type = "ATR Envelope"
-            t1 = price + (risk_amount * target_1_multiplier)
-            t2 = price + (risk_amount * target_2_multiplier)
+            t1_val = round(price + (risk_amount * target_1_multiplier), 2)
+            t2_val = round(price + (risk_amount * target_2_multiplier), 2)
             if bullish_cross or (is_coiling == "CRITICAL SQUEEZE" and latest['Close'] > latest['EMA_9']):
                 signal = "🟢 EXPANSION TRIGGER"
             else:
@@ -226,28 +250,28 @@ def scan_ticker(ticker_symbol):
             if bullish_cross and latest['RSI'] > 40:
                 signal = "🟢 BUY TRIGGER"
                 stop = price - risk_amount
-                t1 = price + (risk_amount * target_1_multiplier)
-                t2 = price + (risk_amount * target_2_multiplier)
+                t1_val = round(price + (risk_amount * target_1_multiplier), 2)
+                t2_val = round(price + (risk_amount * target_2_multiplier), 2)
             elif bearish_cross or (latest['RSI'] > 70 and latest['EMA_9'] < latest['EMA_21']):
                 signal = "🔴 SELL TRIGGER"
                 stop = price + risk_amount
-                t1 = price - (risk_amount * target_1_multiplier)
-                t2 = price - (risk_amount * target_2_multiplier)
+                t1_val = round(price - (risk_amount * target_1_multiplier), 2)
+                t2_val = round(price - (risk_amount * target_2_multiplier), 2)
             elif latest['EMA_9'] > latest['EMA_21']:
                 signal = "🟡 HOLD (Bullish Trend)"
                 stop = price - risk_amount
-                t1 = price + (risk_amount * target_1_multiplier)
-                t2 = price + (risk_amount * target_2_multiplier)
+                t1_val = round(price + (risk_amount * target_1_multiplier), 2)
+                t2_val = round(price + (risk_amount * target_2_multiplier), 2)
             else:
                 signal = "⚪ HOLD (Bearish/Cash)"
                 stop = price + risk_amount
-                t1 = price - (risk_amount * target_1_multiplier)
-                t2 = price - (risk_amount * target_2_multiplier)
+                t1_val = round(price - (risk_amount * target_1_multiplier), 2)
+                t2_val = round(price - (risk_amount * target_2_multiplier), 2)
             
         return {
             "Ticker": ticker_symbol, "Price": round(price, 2), "Signal": signal,
             "Calculated Stop": round(stop, 2), "Stop Type": stop_type,
-            "Target 1": round(t1, 2), "Target 2": round(t2, 2),
+            "Target 1": t1_val, "Target 2": t2_val,
             "50 SMA": round(latest['SMA_50'], 2), "200 SMA": round(latest['SMA_200'], 2),
             "RSI": round(latest['RSI'], 1), "Compression Status": is_coiling
         }
@@ -294,16 +318,11 @@ if st.session_state.get('run_success'):
     calc_col1, calc_col2 = st.columns([1, 1.2])
     
     with calc_col1:
-        # 1. Signal Category Filter
         available_signals = ["Show All Categories"] + sorted(scan_df['Signal'].unique().tolist())
         selected_signal_filter = st.selectbox("Filter Assets by Signal State:", available_signals, key="signal_filter_key")
         
-        if selected_signal_filter != "Show All Categories":
-            filtered_calc_df = scan_df[scan_df['Signal'] == selected_signal_filter]
-        else:
-            filtered_calc_df = scan_df
+        filtered_calc_df = scan_df[scan_df['Signal'] == selected_signal_filter] if selected_signal_filter != "Show All Categories" else scan_df
             
-        # 2. Filtered Stock Selection
         if not filtered_calc_df.empty:
             calc_ticker = st.selectbox("Select Asset from Scanned List:", filtered_calc_df['Ticker'].tolist(), key="calc_select_key")
             ticker_data = filtered_calc_df[filtered_calc_df['Ticker'] == calc_ticker].iloc[0]
@@ -311,8 +330,8 @@ if st.session_state.get('run_success'):
             price_val = float(ticker_data['Price'])
             stop_val = float(ticker_data['Calculated Stop'])
             stop_type_label = str(ticker_data['Stop Type'])
-            t1_val = float(ticker_data['Target 1'])
-            t2_val = float(ticker_data['Target 2'])
+            t1_val = ticker_data['Target 1']
+            t2_val = ticker_data['Target 2']
             
             risk_per_share = max(price_val - stop_val, 0.01)
             
@@ -322,7 +341,6 @@ if st.session_state.get('run_success'):
             avail_cash = st.number_input("Available Cash ($)", min_value=0.0, value=5000.0, step=500.0, key="avail_cash_key")
             risk_pct = st.slider("Account Risk Tolerance per Trade (%)", min_value=0.25, max_value=5.0, value=1.0, step=0.25, key="risk_pct_slider_key") / 100.0
             
-            # CAPITAL ALLOCATION CAP TOGGLE
             alloc_base_choice = st.radio(
                 "Capital Allocation Cap Base:",
                 ["Total Account Balance", "Available Cash"],
@@ -337,13 +355,8 @@ if st.session_state.get('run_success'):
     with calc_col2:
         if calc_ticker is not None:
             dollar_risk_allowed = acc_balance * risk_pct
-            
-            if alloc_base_choice == "Total Account Balance":
-                max_capital_allowed = acc_balance * max_cap_pct
-                cap_label_text = f"Total Account Cap ({max_cap_pct*100:.0f}%)"
-            else:
-                max_capital_allowed = avail_cash * max_cap_pct
-                cap_label_text = f"Available Cash Cap ({max_cap_pct*100:.0f}%)"
+            max_capital_allowed = (acc_balance * max_cap_pct) if alloc_base_choice == "Total Account Balance" else (avail_cash * max_cap_pct)
+            cap_label_text = f"Total Account Cap ({max_cap_pct*100:.0f}%)" if alloc_base_choice == "Total Account Balance" else f"Available Cash Cap ({max_cap_pct*100:.0f}%)"
             
             shares_by_risk = int(dollar_risk_allowed / risk_per_share)
             shares_by_cap = int(max_capital_allowed / price_val)
@@ -374,35 +387,41 @@ if st.session_state.get('run_success'):
     # --- TOGGLEABLE PARTIAL TAKE-PROFIT EXIT ENGINE ---
     if calc_ticker is not None:
         st.write("---")
-        show_exit_calc = st.checkbox("🎯 Enable Partial Take-Profit Exit Calculator", value=True, key="show_exit_calc_key")
-        
-        if show_exit_calc and final_shares > 0:
-            st.markdown("#### **Partial Exit Realization Strategy**")
-            p_col1, p_col2 = st.columns(2)
+        if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)":
+            show_exit_calc = st.checkbox("🎯 Enable Partial Take-Profit Exit Calculator", value=True, key="show_exit_calc_key")
             
-            with p_col1:
-                t1_sell_pct = st.slider("Target 1 Exit (% of Total Position)", 0.0, 100.0, 33.3, step=0.1, key="t1_sell_pct_key") / 100.0
-                t1_shares_to_sell = int(final_shares * t1_sell_pct)
-                t1_cash_realized = t1_shares_to_sell * t1_val
-                t1_profit_realized = t1_shares_to_sell * (t1_val - price_val)
+            if show_exit_calc and final_shares > 0:
+                st.markdown("#### **Partial Exit Realization Strategy**")
+                p_col1, p_col2 = st.columns(2)
                 
-                st.metric(f"Sell at Target 1 (${t1_val:.2f})", f"{t1_shares_to_sell:,} Shares")
-                st.write(f"* **Cash Realized:** ${t1_cash_realized:,.2f}")
-                st.write(f"* **Profit Locked In:** ${t1_profit_realized:,.2f}")
+                t1_num = float(t1_val)
+                t2_num = float(t2_val)
                 
-            with p_col2:
-                remaining_shares_after_t1 = final_shares - t1_shares_to_sell
-                t2_sell_pct = st.slider("Target 2 Exit (% of Remaining Position)", 0.0, 100.0, 100.0, step=0.1, key="t2_sell_pct_key") / 100.0
-                t2_shares_to_sell = int(remaining_shares_after_t1 * t2_sell_pct)
-                t2_cash_realized = t2_shares_to_sell * t2_val
-                t2_profit_realized = t2_shares_to_sell * (t2_val - price_val)
-                
-                st.metric(f"Sell at Target 2 (${t2_val:.2f})", f"{t2_shares_to_sell:,} Shares")
-                st.write(f"* **Cash Realized:** ${t2_cash_realized:,.2f}")
-                st.write(f"* **Profit Locked In:** ${t2_profit_realized:,.2f}")
-                
-            total_projected_profit = t1_profit_realized + t2_profit_realized
-            st.success(f"💰 **Total Projected Profit Across Targets:** **${total_projected_profit:,.2f}** ({ (total_projected_profit / final_invested)*100:.2f}% Return on Invested Capital)")
+                with p_col1:
+                    t1_sell_pct = st.slider("Target 1 Exit (% of Total Position)", 0.0, 100.0, 33.3, step=0.1, key="t1_sell_pct_key") / 100.0
+                    t1_shares_to_sell = int(final_shares * t1_sell_pct)
+                    t1_cash_realized = t1_shares_to_sell * t1_num
+                    t1_profit_realized = t1_shares_to_sell * (t1_num - price_val)
+                    
+                    st.metric(f"Sell at Target 1 (${t1_num:.2f})", f"{t1_shares_to_sell:,} Shares")
+                    st.write(f"* **Cash Realized:** ${t1_cash_realized:,.2f}")
+                    st.write(f"* **Profit Locked In:** ${t1_profit_realized:,.2f}")
+                    
+                with p_col2:
+                    remaining_shares_after_t1 = final_shares - t1_shares_to_sell
+                    t2_sell_pct = st.slider("Target 2 Exit (% of Remaining Position)", 0.0, 100.0, 100.0, step=0.1, key="t2_sell_pct_key") / 100.0
+                    t2_shares_to_sell = int(remaining_shares_after_t1 * t2_sell_pct)
+                    t2_cash_realized = t2_shares_to_sell * t2_num
+                    t2_profit_realized = t2_shares_to_sell * (t2_num - price_val)
+                    
+                    st.metric(f"Sell at Target 2 (${t2_num:.2f})", f"{t2_shares_to_sell:,} Shares")
+                    st.write(f"* **Cash Realized:** ${t2_cash_realized:,.2f}")
+                    st.write(f"* **Profit Locked In:** ${t2_profit_realized:,.2f}")
+                    
+                total_projected_profit = t1_profit_realized + t2_profit_realized
+                st.success(f"💰 **Total Projected Profit Across Targets:** **${total_projected_profit:,.2f}** ({ (total_projected_profit / final_invested)*100:.2f}% Return on Invested Capital)")
+        else:
+            st.info("ℹ️ **Pure Trailing Exit Mode Active:** Position is managed dynamically using trailing stop rules without fixed profit targets.")
 
     st.html("<br>---")
     st.subheader("🎯 Interactive Structural Chart Window")
@@ -425,12 +444,18 @@ if st.session_state.get('run_success'):
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['SMA_50'], line=dict(color='blue', width=1, dash='dot'), name="50 SMA"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['SMA_200'], line=dict(color='purple', width=1, dash='dot'), name="200 SMA"))
         fig.add_hline(y=row['Calculated Stop'], line_dash="dash", line_color="red", annotation_text=f"Stop Loss ({row['Stop Type']})")
+        
+        if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)":
+            fig.add_hline(y=float(row['Target 1']), line_dash="dash", line_color="lightgreen", annotation_text="Target 1 Horizon Line")
+            fig.add_hline(y=float(row['Target 2']), line_dash="dash", line_color="green", annotation_text="Target 2 Horizon Line")
     else:
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_9'], line=dict(color='orange', width=1.5), name="9 EMA"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_21'], line=dict(color='cyan', width=1.5), name="21 EMA"))
         fig.add_hline(y=row['Calculated Stop'], line_dash="dash", line_color="red", annotation_text="Calculated Stop Placement")
-        fig.add_hline(y=row['Target 1'], line_dash="dash", line_color="lightgreen", annotation_text="Target 1 Horizon Line")
-        fig.add_hline(y=row['Target 2'], line_dash="dash", line_color="green", annotation_text="Target 2 Horizon Line")
+        fig.add_hline(y=float(row['Target 1']), line_dash="dash", line_color="lightgreen", annotation_text="Target 1 Horizon Line")
+        fig.add_hline(y=float(row['Target 2']), line_dash="dash", line_color="green", annotation_text="Target 2 Horizon Line")
     
     fig.update_layout(title=f"{selected_ticker} Technical Execution Geometry Map", template="plotly_dark", xaxis_rangeslider_visible=False, height=520)
     st.plotly_chart(fig, use_container_width=True)
+
+```
