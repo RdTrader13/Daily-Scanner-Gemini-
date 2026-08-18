@@ -76,7 +76,20 @@ else:
 st.sidebar.write("---")
 st.sidebar.header("⚙️ Risk Parameters")
 atr_period = st.sidebar.slider("ATR Measurement Lookback", 5, 30, 14, key="atr_period_key")
-risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (Stops)", 1.0, 4.0, 1.5, step=0.1, key="risk_multiplier_key")
+
+# HMA SPECIFIC STOP SELECTOR
+if scan_strategy == "Universal 4-HMA Trend-Following":
+    hma_stop_mode = st.sidebar.selectbox(
+        "HMA Stop-Loss Calculation Mode:",
+        ["Most Recent Red HMA Low", "2nd Most Recent Red HMA Low", "ATR Multiplier"],
+        key="hma_stop_mode_key"
+    )
+    if hma_stop_mode == "ATR Multiplier":
+        risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (ATR)", 0.5, 5.0, 1.5, step=0.1, key="risk_multiplier_key")
+    else:
+        risk_multiplier = 1.5  # Default baseline for target multipliers
+else:
+    risk_multiplier = st.sidebar.slider("Risk Envelope Scalar (Stops)", 1.0, 4.0, 1.5, step=0.1, key="risk_multiplier_key")
 
 st.sidebar.write("---")
 st.sidebar.header("🎯 Target Horizon Multipliers")
@@ -157,22 +170,40 @@ def scan_ticker(ticker_symbol):
             recent_cross = cross_today or cross_yesterday
             hma_close_sloping_up = latest['HMA_Close'] > prev['HMA_Close']
             hma_open_sloping_up = latest['HMA_Open'] > prev['HMA_Open']
-            
-            # --- MOMENTUM CONFIRMATION CONDITION ---
             closed_above_white = price > latest['HMA_Close']
             
             hma_high = max(latest['HMA_High'], latest['HMA_Low'])
             hma_low = min(latest['HMA_High'], latest['HMA_Low'])
             is_inside_hma_channel = (price >= hma_low) and (price <= hma_high)
             
-            stop = latest['HMA_Low']
-            stop_type = "HMA Red Line"
-            t1 = price + (risk_amount * target_1_multiplier)
-            t2 = price + (risk_amount * target_2_multiplier)
+            # --- DYNAMIC STOP LOSS CALCULATION LOGIC ---
+            red_hma_df = df[df['HMA_Close'] < df['HMA_Open']]
+            
+            if hma_stop_mode == "Most Recent Red HMA Low":
+                if not red_hma_df.empty:
+                    stop = red_hma_df.iloc[-1]['HMA_Low']
+                else:
+                    stop = latest['HMA_Low']
+                stop_type = "Most Recent Red HMA Low"
+            elif hma_stop_mode == "2nd Most Recent Red HMA Low":
+                if len(red_hma_df) >= 2:
+                    stop = red_hma_df.iloc[-2]['HMA_Low']
+                elif not red_hma_df.empty:
+                    stop = red_hma_df.iloc[-1]['HMA_Low']
+                else:
+                    stop = latest['HMA_Low']
+                stop_type = "2nd Most Recent Red HMA Low"
+            else:
+                stop = price - risk_amount
+                stop_type = f"ATR Multiplier ({risk_multiplier}x)"
+            
+            risk_per_share = max(price - stop, 0.01)
+            t1 = price + (risk_per_share * target_1_multiplier)
+            t2 = price + (risk_per_share * target_2_multiplier)
             
             if above_smas and recent_cross and hma_close_sloping_up and hma_open_sloping_up and closed_above_white:
                 signal = "🟢 4-HMA BUY ENTRY (Recent Cross + Momentum Confirmed)"
-            elif price < latest['HMA_Low']:
+            elif price < stop:
                 signal = "🔴 4-HMA EXIT TRIGGER"
             elif is_inside_hma_channel:
                 signal = "🟡 4-HMA HOLD (Consolidating inside HMA Band)"
@@ -285,7 +316,7 @@ if st.session_state.get('run_success'):
             
             risk_per_share = max(price_val - stop_val, 0.01)
             
-            st.info(f"**Asset:** {calc_ticker} | **Current Price:** ${price_val:.2f} | **{stop_type_label} Stop:** ${stop_val:.2f} | **Risk/Share:** ${risk_per_share:.2f}")
+            st.info(f"**Asset:** {calc_ticker} | **Current Price:** ${price_val:.2f} | **{stop_type_label}:** ${stop_val:.2f} | **Risk/Share:** ${risk_per_share:.2f}")
             
             acc_balance = st.number_input("Total Account Balance ($)", min_value=100.0, value=10000.0, step=500.0, key="acc_balance_key")
             avail_cash = st.number_input("Available Cash ($)", min_value=0.0, value=5000.0, step=500.0, key="avail_cash_key")
@@ -390,9 +421,10 @@ if st.session_state.get('run_success'):
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['HMA_Open'], line=dict(color='yellow', width=1.5), name="HMA 20 (Open)"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['HMA_Close'], line=dict(color='white', width=1.5), name="HMA 20 (Close)"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['HMA_High'], line=dict(color='green', width=1.5), name="HMA 20 (High)"))
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['HMA_Low'], line=dict(color='red', width=1.5), name="HMA 20 (Low / Trailing Stop)"))
+        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['HMA_Low'], line=dict(color='red', width=1.5), name="HMA 20 (Low)"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['SMA_50'], line=dict(color='blue', width=1, dash='dot'), name="50 SMA"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['SMA_200'], line=dict(color='purple', width=1, dash='dot'), name="200 SMA"))
+        fig.add_hline(y=row['Calculated Stop'], line_dash="dash", line_color="red", annotation_text=f"Stop Loss ({row['Stop Type']})")
     else:
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_9'], line=dict(color='orange', width=1.5), name="9 EMA"))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['EMA_21'], line=dict(color='cyan', width=1.5), name="21 EMA"))
