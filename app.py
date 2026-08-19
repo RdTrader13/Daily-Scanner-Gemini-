@@ -4,92 +4,63 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+import sqlite3
 from datetime import datetime, date
-from sqlalchemy import create_engine, text
 
 # Set page config
 st.set_page_config(page_title="AlphaScan Execution Suite", layout="wide", initial_sidebar_state="expanded")
 
-# --- 1. PRIVATE APP SECURITY ---
-def check_password():
-    """Returns True if the user has entered the correct password."""
-    if "authenticated" not in st.session_state:
-        st.session_state["authenticated"] = False
-
-    if not st.session_state["authenticated"]:
-        st.markdown("### 🔐 Private Access Required")
-        user_password = st.text_input("Enter Passcode:", type="password", key="app_pass_input")
-        
-        # Change this string to your preferred master passcode or use st.secrets
-        APP_PASSCODE = st.secrets.get("APP_PASSCODE", "MyTradingApp2026!") 
-        
-        if st.button("Unlock Dashboard"):
-            if user_password == APP_PASSCODE:
-                st.session_state["authenticated"] = True
-                st.rerun()
-            else:
-                st.error("❌ Incorrect Passcode")
-        st.stop()
-
-check_password()
-
-# --- 2. SUPABASE POSTGRES CONNECTION ---
-# Updated to use Supabase Connection Pooler on Port 6543 + SSL Mode Enforced
-DEFAULT_URI = "postgresql://postgres.qcdmggsmfuyezazxgdbm:oGBXMxgBOXD9q0KP@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
-DB_URI = st.secrets.get("DATABASE_URL", DEFAULT_URI)
-
-@st.cache_resource
-def get_db_engine():
-    return create_engine(DB_URI, pool_pre_ping=True)
-
-engine = get_db_engine()
+# --- DATABASE SETUP (SQLITE) ---
+DB_FILE = "trading_journal.db"
 
 def init_db():
-    with engine.connect() as conn:
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS active_positions (
-                id SERIAL PRIMARY KEY,
-                ticker VARCHAR(20) NOT NULL,
-                strategy VARCHAR(100) NOT NULL,
-                entry_date VARCHAR(20) NOT NULL,
-                budget_price NUMERIC NOT NULL,
-                actual_fill_price NUMERIC NOT NULL,
-                shares INT NOT NULL,
-                stop_loss NUMERIC NOT NULL,
-                target_1 VARCHAR(50),
-                target_2 VARCHAR(50),
-                notes TEXT
-            );
-        '''))
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS trade_journal (
-                id SERIAL PRIMARY KEY,
-                ticker VARCHAR(20) NOT NULL,
-                strategy VARCHAR(100) NOT NULL,
-                entry_date VARCHAR(20) NOT NULL,
-                exit_date VARCHAR(20) NOT NULL,
-                holding_days INT NOT NULL,
-                budget_price NUMERIC NOT NULL,
-                actual_fill_price NUMERIC NOT NULL,
-                exit_price NUMERIC NOT NULL,
-                shares INT NOT NULL,
-                realized_pnl NUMERIC NOT NULL,
-                pnl_pct NUMERIC NOT NULL,
-                slippage NUMERIC NOT NULL,
-                notes TEXT
-            );
-        '''))
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS account_snapshots (
-                id SERIAL PRIMARY KEY,
-                snapshot_date VARCHAR(20) NOT NULL,
-                cash_balance NUMERIC NOT NULL,
-                position_value NUMERIC NOT NULL,
-                total_account_value NUMERIC NOT NULL,
-                notes TEXT
-            );
-        '''))
-        conn.commit()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS active_positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL,
+            strategy TEXT NOT NULL,
+            entry_date TEXT NOT NULL,
+            budget_price REAL NOT NULL,
+            actual_fill_price REAL NOT NULL,
+            shares INTEGER NOT NULL,
+            stop_loss REAL NOT NULL,
+            target_1 TEXT,
+            target_2 TEXT,
+            notes TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS trade_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL,
+            strategy TEXT NOT NULL,
+            entry_date TEXT NOT NULL,
+            exit_date TEXT NOT NULL,
+            holding_days INTEGER NOT NULL,
+            budget_price REAL NOT NULL,
+            actual_fill_price REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            shares INTEGER NOT NULL,
+            realized_pnl REAL NOT NULL,
+            pnl_pct REAL NOT NULL,
+            slippage REAL NOT NULL,
+            notes TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS account_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT NOT NULL,
+            cash_balance REAL NOT NULL,
+            position_value REAL NOT NULL,
+            total_account_value REAL NOT NULL,
+            notes TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
 init_db()
 
@@ -305,6 +276,7 @@ if app_mode == "⚡ AlphaScan Engine":
         hold_hits = len(scan_df[scan_df['Signal'].str.contains('🟡')])
         neutral_hits = len(scan_df[scan_df['Signal'].str.contains('⚪')])
 
+        # --- RESTORED SCAN SUMMARY DASHBOARD ---
         st.markdown("### 🔍 **Scan Results Summary**")
         sc_col1, sc_col2, sc_col3, sc_col4, sc_col5 = st.columns(5)
         sc_col1.metric("Nodes Scanned", f"{total_nodes} Tickers")
@@ -360,32 +332,23 @@ if app_mode == "⚡ AlphaScan Engine":
                 trade_notes = st.text_input("Trade Notes / Setup Context", value=f"Scanned from {scan_strategy}")
                 
                 if st.button("🚀 Open & Track Position", type="primary"):
-                    with engine.connect() as conn:
-                        conn.execute(
-                            text('''
-                                INSERT INTO active_positions (ticker, strategy, entry_date, budget_price, actual_fill_price, shares, stop_loss, target_1, target_2, notes)
-                                VALUES (:t, :s, :ed, :bp, :afp, :sh, :sl, :t1, :t2, :n)
-                            '''),
-                            {
-                                "t": calc_ticker, "s": scan_strategy, "ed": str(entry_date_input),
-                                "bp": budget_price_val, "afp": actual_fill_price_input, "sh": final_shares,
-                                "sl": stop_val, "t1": t1_val, "t2": t2_val, "n": trade_notes
-                            }
-                        )
-                        pos_cost = actual_fill_price_input * final_shares
-                        new_cash = max(0.0, avail_cash - pos_cost)
-                        conn.execute(
-                            text('''
-                                INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
-                                VALUES (:sd, :cb, :pv, :tav, :n)
-                            '''),
-                            {
-                                "sd": str(entry_date_input), "cb": new_cash, "pv": pos_cost,
-                                "tav": acc_balance, "n": f"Opened Position: {calc_ticker}"
-                            }
-                        )
-                        conn.commit()
-                    st.success(f"✅ Position for {calc_ticker} logged successfully to Supabase cloud!")
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute('''
+                        INSERT INTO active_positions (ticker, strategy, entry_date, budget_price, actual_fill_price, shares, stop_loss, target_1, target_2, notes)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (calc_ticker, scan_strategy, str(entry_date_input), budget_price_val, actual_fill_price_input, final_shares, stop_val, t1_val, t2_val, trade_notes))
+                    
+                    pos_cost = actual_fill_price_input * final_shares
+                    new_cash = max(0.0, avail_cash - pos_cost)
+                    c.execute('''
+                        INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (str(entry_date_input), new_cash, pos_cost, acc_balance, f"Opened Position: {calc_ticker}"))
+                    
+                    conn.commit()
+                    conn.close()
+                    st.success(f"✅ Position for {calc_ticker} logged successfully to active portfolio!")
 
 # ==========================================
 # PAGE 2: ACTIVE PORTFOLIO MANAGER
@@ -393,7 +356,9 @@ if app_mode == "⚡ AlphaScan Engine":
 elif app_mode == "💼 Active Portfolio Manager":
     st.subheader("💼 Active Position Management Core")
     
-    df_active = pd.read_sql("SELECT * FROM active_positions ORDER BY id DESC", con=engine)
+    conn = sqlite3.connect(DB_FILE)
+    df_active = pd.read_sql_query("SELECT * FROM active_positions", conn)
+    conn.close()
     
     if df_active.empty:
         st.info("No active positions tracked. Open positions using the AlphaScan Engine scanner.")
@@ -401,6 +366,7 @@ elif app_mode == "💼 Active Portfolio Manager":
         st.write("### **Live Open Positions (Fully Editable Log)**")
         df_active['Fill_Slippage_$'] = df_active['actual_fill_price'] - df_active['budget_price']
         
+        # --- ALL FIELDS EDITABLE ---
         edited_df = st.data_editor(
             df_active[['id', 'ticker', 'strategy', 'entry_date', 'budget_price', 'actual_fill_price', 'Fill_Slippage_$', 'shares', 'stop_loss', 'target_1', 'target_2', 'notes']],
             disabled=['id', 'Fill_Slippage_$'],
@@ -409,25 +375,16 @@ elif app_mode == "💼 Active Portfolio Manager":
         )
         
         if st.button("💾 Save Active Position Edits", type="primary"):
-            with engine.connect() as conn:
-                for idx, row in edited_df.iterrows():
-                    conn.execute(
-                        text('''
-                            UPDATE active_positions 
-                            SET ticker = :t, strategy = :s, entry_date = :ed, budget_price = :bp, 
-                                actual_fill_price = :afp, shares = :sh, stop_loss = :sl, 
-                                target_1 = :t1, target_2 = :t2, notes = :n
-                            WHERE id = :id
-                        '''),
-                        {
-                            "t": row['ticker'], "s": row['strategy'], "ed": str(row['entry_date']),
-                            "bp": float(row['budget_price']), "afp": float(row['actual_fill_price']),
-                            "sh": int(row['shares']), "sl": float(row['stop_loss']),
-                            "t1": str(row['target_1']), "t2": str(row['target_2']),
-                            "n": row['notes'], "id": int(row['id'])
-                        }
-                    )
-                conn.commit()
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            for idx, row in edited_df.iterrows():
+                c.execute('''
+                    UPDATE active_positions 
+                    SET ticker = ?, strategy = ?, entry_date = ?, budget_price = ?, actual_fill_price = ?, shares = ?, stop_loss = ?, target_1 = ?, target_2 = ?, notes = ?
+                    WHERE id = ?
+                ''', (row['ticker'], row['strategy'], str(row['entry_date']), row['budget_price'], row['actual_fill_price'], int(row['shares']), row['stop_loss'], str(row['target_1']), str(row['target_2']), row['notes'], row['id']))
+            conn.commit()
+            conn.close()
             st.success("✅ All position modifications updated and saved!")
             st.rerun()
 
@@ -448,32 +405,23 @@ elif app_mode == "💼 Active Portfolio Manager":
             
         holding_days = max((exit_date - entry_dt).days, 1)
         
-        shares = int(selected_pos['shares'])
-        actual_fill_price = float(selected_pos['actual_fill_price'])
-        budget_price = float(selected_pos['budget_price'])
-        
-        realized_pnl = round((exit_price - actual_fill_price) * shares, 2)
-        pnl_pct = round(((exit_price - actual_fill_price) / actual_fill_price) * 100, 2)
-        slippage = round(actual_fill_price - budget_price, 2)
+        shares = selected_pos['shares']
+        realized_pnl = round((exit_price - selected_pos['actual_fill_price']) * shares, 2)
+        pnl_pct = round(((exit_price - selected_pos['actual_fill_price']) / selected_pos['actual_fill_price']) * 100, 2)
+        slippage = round(selected_pos['actual_fill_price'] - selected_pos['budget_price'], 2)
         
         c3.metric("Projected Realized P&L", f"${realized_pnl:,.2f}", f"{pnl_pct}%")
         
         if st.button("🔒 Confirm Exit & Transfer to Trader Journal", type="primary"):
-            with engine.connect() as conn:
-                conn.execute(
-                    text('''
-                        INSERT INTO trade_journal (ticker, strategy, entry_date, exit_date, holding_days, budget_price, actual_fill_price, exit_price, shares, realized_pnl, pnl_pct, slippage, notes)
-                        VALUES (:t, :s, :ed, :xd, :hd, :bp, :afp, :xp, :sh, :pnl, :pnl_p, :slip, :n)
-                    '''),
-                    {
-                        "t": selected_pos['ticker'], "s": selected_pos['strategy'], "ed": str(selected_pos['entry_date']),
-                        "xd": str(exit_date), "hd": holding_days, "bp": budget_price,
-                        "afp": actual_fill_price, "xp": exit_price, "sh": shares,
-                        "pnl": realized_pnl, "pnl_p": pnl_pct, "slip": slippage, "n": selected_pos['notes']
-                    }
-                )
-                conn.execute(text("DELETE FROM active_positions WHERE id = :id"), {"id": int(pos_id_to_close)})
-                conn.commit()
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO trade_journal (ticker, strategy, entry_date, exit_date, holding_days, budget_price, actual_fill_price, exit_price, shares, realized_pnl, pnl_pct, slippage, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (selected_pos['ticker'], selected_pos['strategy'], str(selected_pos['entry_date']), str(exit_date), holding_days, selected_pos['budget_price'], selected_pos['actual_fill_price'], exit_price, shares, realized_pnl, pnl_pct, slippage, selected_pos['notes']))
+            c.execute("DELETE FROM active_positions WHERE id = ?", (pos_id_to_close,))
+            conn.commit()
+            conn.close()
             st.success(f"Position {selected_pos['ticker']} closed and committed to Journal!")
             st.rerun()
 
@@ -483,8 +431,10 @@ elif app_mode == "💼 Active Portfolio Manager":
 else:
     st.subheader("📖 Modern Trader Analytics Dashboard")
     
-    df_journal = pd.read_sql("SELECT * FROM trade_journal ORDER BY id DESC", con=engine)
-    df_snapshots = pd.read_sql("SELECT * FROM account_snapshots ORDER BY id DESC", con=engine)
+    conn = sqlite3.connect(DB_FILE)
+    df_journal = pd.read_sql_query("SELECT * FROM trade_journal", conn)
+    df_snapshots = pd.read_sql_query("SELECT * FROM account_snapshots", conn)
+    conn.close()
     
     with st.expander("📸 Record Balance Snapshot", expanded=False):
         c1, c2, c3 = st.columns(3)
@@ -493,21 +443,18 @@ else:
         snap_notes = c3.text_input("Snapshot Context Note", value="Periodic Balance Check")
         
         if st.button("💾 Record Balance Snapshot"):
-            with engine.connect() as conn:
-                conn.execute(
-                    text('''
-                        INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
-                        VALUES (:sd, :cb, :pv, :tav, :n)
-                    '''),
-                    {
-                        "sd": str(datetime.today().date()), "cb": snap_cash,
-                        "pv": snap_positions, "tav": snap_cash + snap_positions, "n": snap_notes
-                    }
-                )
-                conn.commit()
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (str(datetime.today().date()), snap_cash, snap_positions, snap_cash + snap_positions, snap_notes))
+            conn.commit()
+            conn.close()
             st.success("Snapshot saved!")
             st.rerun()
 
+    # Calculate Core Metrics
     total_trades = len(df_journal)
     wins = len(df_journal[df_journal['realized_pnl'] > 0]) if not df_journal.empty else 0
     losses = len(df_journal[df_journal['realized_pnl'] < 0]) if not df_journal.empty else 0
@@ -519,6 +466,7 @@ else:
 
     net_pnl = df_journal['realized_pnl'].sum() if not df_journal.empty else 0.0
 
+    # --- TOP METRIC DASHBOARD ROW ---
     dash_col1, dash_col2, dash_col3, dash_col4 = st.columns([1, 1.2, 1, 1.2])
     
     with dash_col1:
@@ -566,6 +514,7 @@ else:
 
     st.write("---")
 
+    # --- MIDDLE ROW: CALENDAR HEATMAP & BALANCE SHADOW CHART ---
     mid_col1, mid_col2 = st.columns([1, 1.2])
 
     with mid_col1:
