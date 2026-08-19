@@ -34,8 +34,8 @@ def check_password():
 check_password()
 
 # --- 2. SUPABASE POSTGRES CONNECTION ---
-# Fallback uses environment secret or direct URI string
-DEFAULT_URI = "postgresql://postgres:oGBXMxgBOXD9q0KP@db.qcdmggsmfuyezazxgdbm.supabase.co:5432/postgres"
+# Updated to use Supabase Connection Pooler on Port 6543 + SSL Mode Enforced
+DEFAULT_URI = "postgresql://postgres.qcdmggsmfuyezazxgdbm:oGBXMxgBOXD9q0KP@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
 DB_URI = st.secrets.get("DATABASE_URL", DEFAULT_URI)
 
 @st.cache_resource
