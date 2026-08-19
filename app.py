@@ -5,7 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date
 
 # Set page config
 st.set_page_config(page_title="AlphaScan Execution Suite", layout="wide", initial_sidebar_state="expanded")
@@ -16,7 +16,6 @@ DB_FILE = "trading_journal.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Active Positions Table
     c.execute('''
         CREATE TABLE IF NOT EXISTS active_positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +31,6 @@ def init_db():
             notes TEXT
         )
     ''')
-    # Closed Journal Trades Table
     c.execute('''
         CREATE TABLE IF NOT EXISTS trade_journal (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,7 +49,6 @@ def init_db():
             notes TEXT
         )
     ''')
-    # Account Snapshots Table
     c.execute('''
         CREATE TABLE IF NOT EXISTS account_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,18 +223,18 @@ if app_mode == "⚡ AlphaScan Engine":
                 t2_val = round(price + (risk_per_share * target_2_multiplier), 2) if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)" else "PURE TRAIL"
                 
                 if above_smas and recent_cross and hma_close_sloping_up and hma_open_sloping_up and closed_above_white:
-                    signal = "🟢 4-HMA BUY ENTRY (Recent Cross + Momentum Confirmed)"
-                elif price < stop: signal = "🔴 4-HMA EXIT TRIGGER"
-                elif is_inside_hma_channel: signal = "🟡 4-HMA HOLD (Consolidating inside HMA Band)"
-                elif latest['HMA_Close'] > latest['HMA_Open'] and above_smas: signal = "🟡 4-HMA BULLISH TREND (Extended Cross)"
-                else: signal = "⚪ 4-HMA NEUTRAL / WAIT"
+                    signal = "🟢 BUY ENTRY"
+                elif price < stop: signal = "🔴 EXIT TRIGGER"
+                elif is_inside_hma_channel: signal = "🟡 HOLD (Consolidating)"
+                elif latest['HMA_Close'] > latest['HMA_Open'] and above_smas: signal = "🟡 BULLISH TREND"
+                else: signal = "⚪ NEUTRAL / WAIT"
                     
             elif scan_strategy == "Squeeze / Penny Stock Multiplier":
                 stop = price - risk_amount
                 stop_type = "ATR Envelope"
                 t1_val = round(price + (risk_amount * target_1_multiplier), 2)
                 t2_val = round(price + (risk_amount * target_2_multiplier), 2)
-                signal = "🟢 EXPANSION TRIGGER" if (bullish_cross or (is_coiling == "CRITICAL SQUEEZE" and latest['Close'] > latest['EMA_9'])) else "⚪ MONITOR COILING EFFECT"
+                signal = "🟢 EXPANSION TRIGGER" if (bullish_cross or (is_coiling == "CRITICAL SQUEEZE" and latest['Close'] > latest['EMA_9'])) else "⚪ MONITOR COILING"
             else:
                 stop_type = "ATR Envelope"
                 if bullish_cross and latest['RSI'] > 40:
@@ -247,10 +244,10 @@ if app_mode == "⚡ AlphaScan Engine":
                     signal, stop = "🔴 SELL TRIGGER", price + risk_amount
                     t1_val, t2_val = round(price - (risk_amount * target_1_multiplier), 2), round(price - (risk_amount * target_2_multiplier), 2)
                 elif latest['EMA_9'] > latest['EMA_21']:
-                    signal, stop = "🟡 HOLD (Bullish Trend)", price - risk_amount
+                    signal, stop = "🟡 HOLD (Bullish)", price - risk_amount
                     t1_val, t2_val = round(price + (risk_amount * target_1_multiplier), 2), round(price + (risk_amount * target_2_multiplier), 2)
                 else:
-                    signal, stop = "⚪ HOLD (Bearish/Cash)", price + risk_amount
+                    signal, stop = "⚪ HOLD (Cash)", price + risk_amount
                     t1_val, t2_val = round(price - (risk_amount * target_1_multiplier), 2), round(price - (risk_amount * target_2_multiplier), 2)
                 
             return {
@@ -267,11 +264,28 @@ if app_mode == "⚡ AlphaScan Engine":
             results = [res for t in tickers if (res := scan_ticker(t)) is not None]
             if results:
                 st.session_state['scan_data'] = pd.DataFrame(results)
+                st.session_state['total_nodes'] = len(tickers)
                 st.session_state['run_success'] = True
             else: st.error("No valid matrix node data found.")
 
     if st.session_state.get('run_success'):
         scan_df = st.session_state['scan_data']
+        total_nodes = st.session_state.get('total_nodes', len(scan_df))
+        buy_hits = len(scan_df[scan_df['Signal'].str.contains('🟢')])
+        exit_hits = len(scan_df[scan_df['Signal'].str.contains('🔴')])
+        hold_hits = len(scan_df[scan_df['Signal'].str.contains('🟡')])
+        neutral_hits = len(scan_df[scan_df['Signal'].str.contains('⚪')])
+
+        # --- RESTORED SCAN SUMMARY DASHBOARD ---
+        st.markdown("### 🔍 **Scan Results Summary**")
+        sc_col1, sc_col2, sc_col3, sc_col4, sc_col5 = st.columns(5)
+        sc_col1.metric("Nodes Scanned", f"{total_nodes} Tickers")
+        sc_col2.metric("🟢 Actionable Buy Signals", f"{buy_hits} Hits")
+        sc_col3.metric("🔴 Exit Triggers", f"{exit_hits} Hits")
+        sc_col4.metric("🟡 Trend Holds", f"{hold_hits} Hits")
+        sc_col5.metric("⚪ Neutral / Cash", f"{neutral_hits} Hits")
+        
+        st.write("---")
         st.dataframe(scan_df, use_container_width=True, height=280)
         st.write("---")
         st.subheader("🧮 Position Sizing & Direct Portfolio Logging")
@@ -325,7 +339,6 @@ if app_mode == "⚡ AlphaScan Engine":
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (calc_ticker, scan_strategy, str(entry_date_input), budget_price_val, actual_fill_price_input, final_shares, stop_val, t1_val, t2_val, trade_notes))
                     
-                    # Log Account Snapshot automatically
                     pos_cost = actual_fill_price_input * final_shares
                     new_cash = max(0.0, avail_cash - pos_cost)
                     c.execute('''
@@ -350,24 +363,29 @@ elif app_mode == "💼 Active Portfolio Manager":
     if df_active.empty:
         st.info("No active positions tracked. Open positions using the AlphaScan Engine scanner.")
     else:
-        st.write("### **Live Open Positions**")
+        st.write("### **Live Open Positions (Fully Editable Log)**")
         df_active['Fill_Slippage_$'] = df_active['actual_fill_price'] - df_active['budget_price']
         
+        # --- ALL FIELDS EDITABLE ---
         edited_df = st.data_editor(
             df_active[['id', 'ticker', 'strategy', 'entry_date', 'budget_price', 'actual_fill_price', 'Fill_Slippage_$', 'shares', 'stop_loss', 'target_1', 'target_2', 'notes']],
-            disabled=['id', 'ticker', 'strategy', 'entry_date', 'budget_price', 'actual_fill_price', 'Fill_Slippage_$', 'shares', 'target_1', 'target_2'],
+            disabled=['id', 'Fill_Slippage_$'],
             use_container_width=True,
-            key="active_editor"
+            key="active_editor_all"
         )
         
-        if st.button("💾 Save Stop Loss / Note Updates"):
+        if st.button("💾 Save Active Position Edits", type="primary"):
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             for idx, row in edited_df.iterrows():
-                c.execute("UPDATE active_positions SET stop_loss = ?, notes = ? WHERE id = ?", (row['stop_loss'], row['notes'], row['id']))
+                c.execute('''
+                    UPDATE active_positions 
+                    SET ticker = ?, strategy = ?, entry_date = ?, budget_price = ?, actual_fill_price = ?, shares = ?, stop_loss = ?, target_1 = ?, target_2 = ?, notes = ?
+                    WHERE id = ?
+                ''', (row['ticker'], row['strategy'], str(row['entry_date']), row['budget_price'], row['actual_fill_price'], int(row['shares']), row['stop_loss'], str(row['target_1']), str(row['target_2']), row['notes'], row['id']))
             conn.commit()
             conn.close()
-            st.success("Updated stops saved to database!")
+            st.success("✅ All position modifications updated and saved!")
             st.rerun()
 
         st.write("---")
@@ -380,7 +398,11 @@ elif app_mode == "💼 Active Portfolio Manager":
         exit_date = c1.date_input("Exit Date", value=datetime.today())
         exit_price = c2.number_input("Broker Exit Fill Price ($)", min_value=0.01, value=float(selected_pos['actual_fill_price']), step=0.01)
         
-        entry_dt = datetime.strptime(selected_pos['entry_date'], "%Y-%m-%d").date()
+        try:
+            entry_dt = datetime.strptime(str(selected_pos['entry_date']), "%Y-%m-%d").date()
+        except Exception:
+            entry_dt = datetime.today().date()
+            
         holding_days = max((exit_date - entry_dt).days, 1)
         
         shares = selected_pos['shares']
@@ -396,7 +418,7 @@ elif app_mode == "💼 Active Portfolio Manager":
             c.execute('''
                 INSERT INTO trade_journal (ticker, strategy, entry_date, exit_date, holding_days, budget_price, actual_fill_price, exit_price, shares, realized_pnl, pnl_pct, slippage, notes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (selected_pos['ticker'], selected_pos['strategy'], selected_pos['entry_date'], str(exit_date), holding_days, selected_pos['budget_price'], selected_pos['actual_fill_price'], exit_price, shares, realized_pnl, pnl_pct, slippage, selected_pos['notes']))
+            ''', (selected_pos['ticker'], selected_pos['strategy'], str(selected_pos['entry_date']), str(exit_date), holding_days, selected_pos['budget_price'], selected_pos['actual_fill_price'], exit_price, shares, realized_pnl, pnl_pct, slippage, selected_pos['notes']))
             c.execute("DELETE FROM active_positions WHERE id = ?", (pos_id_to_close,))
             conn.commit()
             conn.close()
@@ -404,19 +426,17 @@ elif app_mode == "💼 Active Portfolio Manager":
             st.rerun()
 
 # ==========================================
-# PAGE 3: TRADE JOURNAL & ANALYTICS
+# PAGE 3: TRADE JOURNAL & ANALYTICS (PRO DASHBOARD)
 # ==========================================
 else:
-    st.subheader("📖 Trader Journal & Stat Dashboard")
+    st.subheader("📖 Modern Trader Analytics Dashboard")
     
     conn = sqlite3.connect(DB_FILE)
     df_journal = pd.read_sql_query("SELECT * FROM trade_journal", conn)
-    df_active = pd.read_sql_query("SELECT * FROM active_positions", conn)
     df_snapshots = pd.read_sql_query("SELECT * FROM account_snapshots", conn)
     conn.close()
     
-    # MANUAL SNAPSHOT LOGGER CONTROLS
-    with st.expander("📸 Manual Account Balance & Liquidity Snapshot Tool", expanded=False):
+    with st.expander("📸 Record Balance Snapshot", expanded=False):
         c1, c2, c3 = st.columns(3)
         snap_cash = c1.number_input("Liquid Cash ($)", min_value=0.0, value=5000.0, step=500.0)
         snap_positions = c2.number_input("Active Position Value ($)", min_value=0.0, value=5000.0, step=500.0)
@@ -431,64 +451,112 @@ else:
             ''', (str(datetime.today().date()), snap_cash, snap_positions, snap_cash + snap_positions, snap_notes))
             conn.commit()
             conn.close()
-            st.success("Account snapshot recorded!")
+            st.success("Snapshot saved!")
             st.rerun()
 
-    if df_journal.empty and df_snapshots.empty:
-        st.info("No historical journal trades or balance snapshots logged yet. Execute scans and record snapshots to populate charts.")
-    else:
-        # Key Performance Metrics
-        total_trades = len(df_journal)
-        winning_trades = len(df_journal[df_journal['realized_pnl'] > 0]) if not df_journal.empty else 0
-        win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0.0
-        net_pnl = df_journal['realized_pnl'].sum() if not df_journal.empty else 0.0
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Net Realized P&L", f"${net_pnl:,.2f}")
-        m2.metric("Win Rate %", f"{win_rate:.1f}%")
-        m3.metric("Avg Execution Slippage", f"${df_journal['slippage'].mean():.2f}" if not df_journal.empty else "$0.00")
-        
-        st.write("---")
-        st.markdown("### 📊 **Total Portfolio Balance & Liquidity Area Chart**")
-        
+    # Calculate Core Metrics
+    total_trades = len(df_journal)
+    wins = len(df_journal[df_journal['realized_pnl'] > 0]) if not df_journal.empty else 0
+    losses = len(df_journal[df_journal['realized_pnl'] < 0]) if not df_journal.empty else 0
+    win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0.0
+    
+    avg_win = df_journal[df_journal['realized_pnl'] > 0]['realized_pnl'].mean() if wins > 0 else 0.0
+    avg_loss = abs(df_journal[df_journal['realized_pnl'] < 0]['realized_pnl'].mean()) if losses > 0 else 1.0
+    win_loss_ratio = round(avg_win / avg_loss, 2) if avg_loss > 0 else avg_win
+
+    net_pnl = df_journal['realized_pnl'].sum() if not df_journal.empty else 0.0
+
+    # --- TOP METRIC DASHBOARD ROW ---
+    dash_col1, dash_col2, dash_col3, dash_col4 = st.columns([1, 1.2, 1, 1.2])
+    
+    with dash_col1:
+        st.markdown("#### **Winstreak & Volume**")
+        st.metric("Total Trades Logged", f"{total_trades} Trades", f"{wins} Wins / {losses} Losses")
+        st.metric("Avg Execution Slippage", f"${df_journal['slippage'].mean():.2f}" if not df_journal.empty else "$0.00")
+
+    with dash_col2:
+        st.markdown("#### **Winrate Gauge**")
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=win_rate,
+            number={'suffix': "%"},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "#10B981"},
+                'steps': [
+                    {'range': [0, 50], 'color': "#EF4444"},
+                    {'range': [50, 100], 'color': "#1E293B"}
+                ]
+            }
+        ))
+        fig_gauge.update_layout(height=180, margin=dict(l=10, r=10, t=10, b=10), template="plotly_dark")
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
+    with dash_col3:
+        st.markdown("#### **Win / Loss Ratio**")
+        st.metric("Avg Win / Avg Loss Ratio", f"{win_loss_ratio:.2f}")
+        st.metric("Net Realized P&L", f"${net_pnl:,.2f}")
+
+    with dash_col4:
+        st.markdown("#### **Strategy Radar Score**")
+        categories = ['Win Rate', 'Profit Factor', 'Avg Days', 'Return %']
+        fig_radar = go.Figure(go.Scatterpolar(
+            r=[win_rate, min(win_loss_ratio * 20, 100), 50, min(max(net_pnl / 100, 0), 100)],
+            theta=categories,
+            fill='toself',
+            line_color='#3B82F6'
+        ))
+        fig_radar.update_layout(
+            polar=dict(radialaxis=dict(visible=False, range=[0, 100])),
+            showlegend=False, height=180, margin=dict(l=20, r=20, t=10, b=10), template="plotly_dark"
+        )
+        st.plotly_chart(fig_radar, use_container_width=True)
+
+    st.write("---")
+
+    # --- MIDDLE ROW: CALENDAR HEATMAP & BALANCE SHADOW CHART ---
+    mid_col1, mid_col2 = st.columns([1, 1.2])
+
+    with mid_col1:
+        st.markdown("### 📅 **Monthly Trading Calendar Heatmap**")
+        if not df_journal.empty:
+            df_journal['exit_dt'] = pd.to_datetime(df_journal['exit_date'])
+            df_journal['Day'] = df_journal['exit_dt'].dt.day
+            calendar_data = df_journal.groupby('Day')['realized_pnl'].sum().reset_index()
+            
+            fig_cal = px.bar(calendar_data, x='Day', y='realized_pnl', title="PnL Distribution by Day of Month ($)", color='realized_pnl', color_continuous_scale=['#EF4444', '#10B981'])
+            fig_cal.update_layout(template="plotly_dark", height=320)
+            st.plotly_chart(fig_cal, use_container_width=True)
+        else:
+            st.info("Log trades in the journal to view trading calendar heatmap.")
+
+    with mid_col2:
+        st.markdown("### 📈 **Total Portfolio Balance & Liquidity**")
         if not df_snapshots.empty:
             df_snapshots['snapshot_date_dt'] = pd.to_datetime(df_snapshots['snapshot_date'])
             df_snaps_sorted = df_snapshots.sort_values('snapshot_date_dt')
             
-            fig = go.Figure()
-            # Shadow fill traces
-            fig.add_trace(go.Scatter(
+            fig_area = go.Figure()
+            fig_area.add_trace(go.Scatter(
                 x=df_snaps_sorted['snapshot_date_dt'], y=df_snaps_sorted['cash_balance'],
-                name="Liquid Cash Balance ($)", mode='lines', stackgroup='one',
+                name="Liquid Cash ($)", mode='lines', stackgroup='one',
                 line=dict(width=0.5, color='#3B82F6'), fillcolor='rgba(59, 130, 246, 0.4)'
             ))
-            fig.add_trace(go.Scatter(
+            fig_area.add_trace(go.Scatter(
                 x=df_snaps_sorted['snapshot_date_dt'], y=df_snaps_sorted['position_value'],
-                name="Active Position Value ($)", mode='lines', stackgroup='one',
+                name="Active Positions ($)", mode='lines', stackgroup='one',
                 line=dict(width=0.5, color='#F59E0B'), fillcolor='rgba(245, 158, 11, 0.4)'
             ))
-            # Total Balance line overlay
-            fig.add_trace(go.Scatter(
+            fig_area.add_trace(go.Scatter(
                 x=df_snaps_sorted['snapshot_date_dt'], y=df_snaps_sorted['total_account_value'],
-                name="Total Account Equity ($)", mode='lines+markers',
+                name="Total Balance ($)", mode='lines+markers',
                 line=dict(color='#10B981', width=3)
             ))
-            fig.update_layout(title="Account Equity Breakdown (Cash + Position Exposure)", template="plotly_dark", height=450)
-            st.plotly_chart(fig, use_container_width=True)
+            fig_area.update_layout(template="plotly_dark", height=320, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_area, use_container_width=True)
         else:
-            st.warning("Log balance snapshots to render portfolio area chart.")
+            st.info("Log balance snapshots to render portfolio area chart.")
 
-        if not df_journal.empty:
-            st.write("---")
-            st.markdown("### 📈 **Strategy Performance Breakdown**")
-            strategy_stats = df_journal.groupby('strategy').agg(
-                Total_Trades=('id', 'count'),
-                Win_Rate=('realized_pnl', lambda x: f"{(sum(x > 0) / len(x))*100:.1f}%"),
-                Total_PnL=('realized_pnl', 'sum'),
-                Avg_Days=('holding_days', 'mean')
-            ).reset_index()
-            st.dataframe(strategy_stats, use_container_width=True)
-            
-            st.write("---")
-            st.markdown("### 📜 **Trade Journal Records**")
-            st.dataframe(df_journal, use_container_width=True)
+    st.write("---")
+    st.markdown("### 📜 **Historical Trade Journal Records**")
+    st.dataframe(df_journal, use_container_width=True)
