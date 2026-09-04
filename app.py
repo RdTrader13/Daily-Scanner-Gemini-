@@ -40,62 +40,6 @@ def check_password():
 
 check_password()
 
-# --- DATABASE SETUP (SQLITE) ---
-DB_FILE = "trading_journal.db"
-
-
-def init_db():
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS active_positions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL,
-            strategy TEXT NOT NULL,
-            entry_date TEXT NOT NULL,
-            budget_price REAL NOT NULL,
-            actual_fill_price REAL NOT NULL,
-            shares INTEGER NOT NULL,
-            stop_loss REAL NOT NULL,
-            target_1 TEXT,
-            target_2 TEXT,
-            notes TEXT
-        )
-    """)
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS trade_journal (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL,
-            strategy TEXT NOT NULL,
-            entry_date TEXT NOT NULL,
-            exit_date TEXT NOT NULL,
-            holding_days INTEGER NOT NULL,
-            budget_price REAL NOT NULL,
-            actual_fill_price REAL NOT NULL,
-            exit_price REAL NOT NULL,
-            shares INTEGER NOT NULL,
-            realized_pnl REAL NOT NULL,
-            pnl_pct REAL NOT NULL,
-            slippage REAL NOT NULL,
-            notes TEXT
-        )
-    """)
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS account_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            snapshot_date TEXT NOT NULL,
-            cash_balance REAL NOT NULL,
-            position_value REAL NOT NULL,
-            total_account_value REAL NOT NULL,
-            notes TEXT
-        )
-    """)
-  conn.commit()
-  conn.close()
-
-
-init_db()
-
 # --- NAVIGATION SIDEBAR ---
 st.sidebar.title("📌 Navigation")
 app_mode = st.sidebar.radio(
@@ -358,37 +302,56 @@ if app_mode == "⚡ AlphaScan Engine":
       "WMT",
   ]
   TOP_ETFS = [
+      "SPY",
+      "IVV",
+      "VOO",
+      "QQQ",
+      "VTI",
+      "IWM",
+      "EFA",
+      "EEM",
+      "AGG",
+      "BND",
+      "GLD",
+      "SLV",
+      "USO",
+      "XLF",
+      "XLK",
+      "XLE",
+      "XLV",
+      "XLY",
+      "XLP",
+      "XLI",
+      "XLU",
+      "XLB",
+      "XLRE",
+      "XLC",
+      "SMH",
+      "SOXX",
       "GDX",
+      "GDXJ",
       "BITO",
+      "IBIT",
       "TSLL",
       "TQQQ",
       "SQQQ",
       "SOXL",
-      "SPY",
-      "QQQ",
-      "IBIT",
-      "IWM",
-      "GLD",
-      "SLV",
-      "USO",
+      "SCHD",
       "TLT",
       "HYG",
-      "EEM",
+      "LQD",
       "KWEB",
-      "SCHD",
-      "SMH",
-      "SOXX",
-      "XLF",
-      "XLE",
-      "XLK",
-      "XLC",
-      "XLY",
-      "XLP",
-      "XLV",
-      "XLI",
-      "XLU",
-      "XLB",
-      "XRE",
+      "XBI",
+      "ARKK",
+      "LABU",
+      "LABD",
+      "UVXY",
+      "VXX",
+      "BOIL",
+      "KOLD",
+      "SPXU",
+      "UPRO",
+      "SPXL",
   ]
   DEFAULT_SPECULATIVE = [
       "SOUN",
@@ -773,7 +736,7 @@ if app_mode == "⚡ AlphaScan Engine":
     )
     st.write("---")
 
-    st.subheader("🧮 Advanced Position Sizing & Direct Portfolio Logging")
+    st.subheader("🧮 Advanced Position Sizing Calculator")
 
     calc_col1, calc_col2 = st.columns([1, 1.2])
 
@@ -804,9 +767,6 @@ if app_mode == "⚡ AlphaScan Engine":
 
         budget_price_val = float(ticker_data["Price"])
         stop_val = float(ticker_data["Calculated Stop"])
-        t1_val, t2_val = str(ticker_data["Target 1"]), str(
-            ticker_data["Target 2"]
-        )
         score_weight = float(ticker_data["Score Weight Raw"])
         ann_vol = float(ticker_data["Ann Volatility Raw"])
 
@@ -888,67 +848,4 @@ if app_mode == "⚡ AlphaScan Engine":
           st.metric(
               "Budget Capital Required",
               f"${final_shares * budget_price_val:,.2f}",
-          )
-
-        st.write("---")
-        st.markdown("#### **💾 Log Trade to Portfolio Manager**")
-        actual_fill_price_input = st.number_input(
-            "Actual Broker Fill Price ($)",
-            min_value=0.01,
-            value=budget_price_val,
-            step=0.01,
-        )
-        entry_date_input = st.date_input("Entry Date", value=datetime.today())
-        trade_notes = st.text_input(
-            "Trade Notes / Setup Context",
-            value=(
-                f"MHLS: {ticker_data['MHLS']} | Weight:"
-                f" {ticker_data['Score Weight']} | Vol:"
-                f" {ticker_data['Ann Volatility %']}%"
-            ),
-        )
-
-        if st.button("🚀 Open & Track Position", type="primary"):
-          conn = sqlite3.connect(DB_FILE)
-          c = conn.cursor()
-          c.execute(
-              """
-                        INSERT INTO active_positions (ticker, strategy, entry_date, budget_price, actual_fill_price, shares, stop_loss, target_1, target_2, notes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-              (
-                  calc_ticker,
-                  f"{scan_strategy} ({sizing_method})",
-                  str(entry_date_input),
-                  budget_price_val,
-                  actual_fill_price_input,
-                  final_shares,
-                  stop_val,
-                  t1_val,
-                  t2_val,
-                  trade_notes,
-              ),
-          )
-
-          pos_cost = actual_fill_price_input * final_shares
-          new_cash = max(0.0, avail_cash - pos_cost)
-          c.execute(
-              """
-                        INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-              (
-                  str(entry_date_input),
-                  new_cash,
-                  pos_cost,
-                  acc_balance,
-                  f"Opened Position: {calc_ticker}",
-              ),
-          )
-
-          conn.commit()
-          conn.close()
-          st.success(
-              f"✅ Position for {calc_ticker} logged successfully to active"
-              " portfolio!"
           )
