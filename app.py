@@ -1,365 +1,26 @@
-import sqlite3
-from datetime import date, datetime
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
-# --- PAGE CONFIGURATION ---
+# ==========================================
+# PAGE CONFIGURATION
+# ==========================================
 st.set_page_config(
-    page_title="AlphaScan Execution Suite",
+    page_title="Institutional Swing & Momentum Scanner",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-
-# --- 1. PRIVATE APP SECURITY ---
-def check_password():
-  """Returns True if the user has entered the correct password."""
-  if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-
-  if not st.session_state["authenticated"]:
-    st.markdown("### 🔐 Private Access Required")
-    user_password = st.text_input(
-        "Enter Passcode:", type="password", key="app_pass_input"
-    )
-
-    APP_PASSCODE = st.secrets.get("APP_PASSCODE", "MyTradingApp2026!")
-
-    if st.button("Unlock Dashboard"):
-      if user_password == APP_PASSCODE:
-        st.session_state["authenticated"] = True
-        st.rerun()
-      else:
-        st.error("❌ Incorrect Passcode")
-    st.stop()
-
-
-check_password()
-
-# --- DATABASE SETUP (SQLITE) ---
-DB_FILE = "trading_journal.db"
-
-
-def init_db():
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS active_positions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL,
-            strategy TEXT NOT NULL,
-            entry_date TEXT NOT NULL,
-            budget_price REAL NOT NULL,
-            actual_fill_price REAL NOT NULL,
-            shares INTEGER NOT NULL,
-            stop_loss REAL NOT NULL,
-            target_1 TEXT,
-            target_2 TEXT,
-            notes TEXT
-        )
-    """)
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS trade_journal (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL,
-            strategy TEXT NOT NULL,
-            entry_date TEXT NOT NULL,
-            exit_date TEXT NOT NULL,
-            holding_days INTEGER NOT NULL,
-            budget_price REAL NOT NULL,
-            actual_fill_price REAL NOT NULL,
-            exit_price REAL NOT NULL,
-            shares INTEGER NOT NULL,
-            realized_pnl REAL NOT NULL,
-            pnl_pct REAL NOT NULL,
-            slippage REAL NOT NULL,
-            notes TEXT
-        )
-    """)
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS account_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            snapshot_date TEXT NOT NULL,
-            cash_balance REAL NOT NULL,
-            position_value REAL NOT NULL,
-            total_account_value REAL NOT NULL,
-            notes TEXT
-        )
-    """)
-  conn.commit()
-  conn.close()
-
-
-init_db()
-
-# --- NAVIGATION SIDEBAR ---
-st.sidebar.title("📌 Navigation")
-app_mode = st.sidebar.radio(
-    "Go to Page:",
-    [
-        "⚡ AlphaScan Engine",
-        "💼 Active Portfolio Manager",
-        "📖 Trade Journal & Analytics",
-    ],
+st.title("⚡ Quantitative Swing & Momentum Scanner")
+st.caption(
+    "Multi-Universe Technical Scanner & Volatility Sizing Engine | Private Build"
 )
 
-# --- INTERFACE THEME STYLING ---
-theme_choice = st.sidebar.selectbox(
-    "Select UI Theme Workspace:",
-    [
-        "Quantum Dark Core",
-        "Art Deco (Turn of the Century)",
-        "Standard Dark Mode",
-        "Standard Light Mode",
-    ],
-)
-
-if theme_choice == "Quantum Dark Core":
-  bg_app, text_main, border_color, metric_bg, font_family = (
-      "#0B0F19",
-      "#F8FAFC",
-      "#10B981",
-      "#1E293B",
-      "'Inter', sans-serif",
-  )
-  header_html = (
-      '<div style="background-color: #1E293B; padding: 24px; border-radius:'
-      " 12px; border-left: 5px solid #10B981; margin-bottom: 25px;'><h3>⚡"
-      " AlphaScan Execution Suite</h3></div>"
-  )
-elif theme_choice == "Art Deco (Turn of the Century)":
-  bg_app, text_main, border_color, metric_bg, font_family = (
-      "#11161B",
-      "#F3EAD3",
-      "#C5A059",
-      "#1A2129",
-      "'Playfair Display', serif",
-  )
-  header_html = (
-      '<div style="background-color: #1C232B; padding: 24px; border-radius:'
-      " 4px; border: 2px solid #C5A059; border-style: double; border-width:"
-      ' 6px; text-align: center; margin-bottom: 25px;"><h3>THE TECHNICAL'
-      " MOMENTUM CHRONICLE</h3></div>"
-  )
-elif theme_choice == "Standard Dark Mode":
-  bg_app, text_main, border_color, metric_bg, font_family = (
-      "#0E1117",
-      "#FFFFFF",
-      "#30363D",
-      "#161B22",
-      "sans-serif",
-  )
-  header_html = "<div><h1>📊 Dark Mode Engine</h1></div>"
-else:
-  bg_app, text_main, border_color, metric_bg, font_family = (
-      "#FFFFFF",
-      "#1F2937",
-      "#E5E7EB",
-      "#F3F4F6",
-      "sans-serif",
-  )
-  header_html = "<div><h1>📊 Light Mode Engine</h1></div>"
-
-css_payload = f"<style>.stApp {{ background-color: {bg_app} !important; color: {text_main} !important; }} div[data-testid='stMetric'] {{ background-color: {metric_bg} !important; border: 1px solid {border_color} !important; border-radius: 10px !important; }} h1, h2, h3, p {{ font-family: {font_family} !important; color: {text_main} !important; }}</style>"
-st.html(css_payload)
-st.html(header_html)
-
-
-# --- MATHEMATICAL & INDICATOR ENGINE ---
-def calculate_wma(series, length):
-  weights = np.arange(1, length + 1)
-  return series.rolling(length).apply(
-      lambda w: np.dot(w, weights) / weights.sum(), raw=True
-  )
-
-
-def calculate_hma(series, length=20):
-  """Thinkorswim-aligned Hull Moving Average calculation using rounded integer sqrt."""
-  half_length = int(length / 2)
-  sqrt_length = int(np.round(np.sqrt(length)))
-  wma_half = calculate_wma(series, half_length)
-  wma_full = calculate_wma(series, length)
-  raw_hma = 2 * wma_half - wma_full
-  return calculate_wma(raw_hma, sqrt_length)
-
-
-def calculate_mhls_and_volatility(df):
-  """Calculates Multi-Horizon Lookback Score (MHLS), Score Weight, and 30-day Annualized Volatility."""
-  if len(df) < 43:
-    return 0, 0.0, 0.0, 0.0
-
-  current_close = df["Close"].iloc[-1]
-  lookbacks = [5, 10, 21, 42]  # 1w, 2w, 1m, 2m
-  mhls = 0
-
-  for lb in lookbacks:
-    past_close = df["Close"].iloc[-(lb + 1)]
-    if current_close > past_close:
-      mhls += 1
-    elif current_close < past_close:
-      mhls -= 1
-
-  weight_map = {4: 1.0, 3: 0.75, 2: 0.50, 1: 0.25}
-  score_weight = weight_map.get(mhls, 0.0)
-
-  daily_pct_change = df["Close"].pct_change().abs()
-  mean_30d_pct_move = daily_pct_change.iloc[-30:].mean()
-  annualized_volatility = mean_30d_pct_move * np.sqrt(365)
-
-  return mhls, score_weight, round(score_weight * 100, 0), annualized_volatility
-
-
 # ==========================================
-# PAGE 1: ALPHASCAN ENGINE
+# UNIVERSE PRESETS
 # ==========================================
-if app_mode == "⚡ AlphaScan Engine":
-  st.sidebar.header("🎯 Strategy Mode")
-  scan_strategy = st.sidebar.radio(
-      "Select Scanning Framework:",
-      [
-          "Universal 4-HMA Trend-Following",
-          "Large Cap Core Matrix",
-          "Squeeze / Penny Stock Multiplier",
-      ],
-      key="strategy_choice",
-  )
-
-  # CONSOLIDATED SINGLE-LINE UNIVERSE DEFINITIONS
-  FULL_SP500 = [
-      "AAPL",
-      "MSFT",
-      "NVDA",
-      "AMZN",
-      "META",
-      "GOOGL",
-      "GOOG",
-      "BRK-B",
-      "LLY",
-      "AVGO",
-      "JPM",
-      "TSLA",
-      "WMT",
-      "XOM",
-      "UNH",
-      "V",
-      "PG",
-      "MA",
-      "ORCL",
-      "COST",
-      "HD",
-      "CVX",
-      "BAC",
-      "ABBV",
-      "NFLX",
-      "KO",
-      "MRK",
-      "AMD",
-      "PEP",
-      "ADBE",
-      "LIN",
-      "TMO",
-      "WFC",
-      "CSCO",
-      "ACN",
-      "MCD",
-      "DIS",
-      "ABT",
-      "GE",
-      "INTU",
-      "QCOM",
-      "TXN",
-      "CAT",
-      "AMAT",
-      "PM",
-      "VZ",
-      "AXP",
-      "UBER",
-      "PFE",
-      "IBM",
-      "MS",
-      "LOW",
-      "UNP",
-      "AMGN",
-      "GS",
-      "NOW",
-      "SPGI",
-      "LRCX",
-      "SYK",
-      "RTX",
-      "HON",
-      "BKNG",
-      "T",
-      "BLK",
-      "TJX",
-      "C",
-      "ADP",
-      "SBUX",
-      "COP",
-      "VRTX",
-      "PLTR",
-      "MDLZ",
-      "BA",
-      "BMY",
-      "PANW",
-      "SCHW",
-      "ADI",
-      "FI",
-      "CB",
-      "DE",
-      "MMC",
-      "LMT",
-      "TMUS",
-      "ECL",
-      "GEV",
-      "INTC",
-      "SO",
-      "GILD",
-      "NKE",
-      "MU",
-      "MO",
-      "PGR",
-      "UPS",
-      "SHW",
-      "DUK",
-      "TT",
-  ]
-  DOW_30 = [
-      "AAPL",
-      "AMZN",
-      "AXP",
-      "BA",
-      "BAC",
-      "CAT",
-      "CRM",
-      "CSCO",
-      "CVX",
-      "DIS",
-      "HD",
-      "HON",
-      "IBM",
-      "INTC",
-      "JNJ",
-      "JPM",
-      "KO",
-      "MCD",
-      "MMM",
-      "MRK",
-      "MSFT",
-      "NKE",
-      "NVDA",
-      "PG",
-      "SHW",
-      "TRV",
-      "UNH",
-      "V",
-      "VZ",
-      "WMT",
-  ]
-  TOP_ETFS = [
+TOP_ETFS = [
     "BITO",
     "TSLL",
     "SNXX",
@@ -461,942 +122,434 @@ if app_mode == "⚡ AlphaScan Engine":
     "UNG",
 ]
 
-  DEFAULT_SPECULATIVE = [
-      "SOUN",
-      "BBAI",
-      "LCID",
-      "GRND",
-      "NKLA",
-      "NIO",
-      "OPEN",
-      "SOFI",
-      "PTON",
-      "MARA",
-      "RIOT",
-      "CLSK",
-      "HUT",
-      "CLOV",
-      "MQ",
-      "NXDR",
+MEGA_CAP_TECH = [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "GOOGL",
+    "AMZN",
+    "META",
+    "TSLA",
+    "AVGO",
+    "AMD",
+    "PLTR",
+]
+
+DIVIDEND_ARISTOCRATS = [
+    "NOBL",
+    "JNJ",
+    "PG",
+    "KO",
+    "PEP",
+    "ABBV",
+    "MMM",
+    "TGT",
+    "LOW",
+    "EMR",
+]
+
+# ==========================================
+# SIDEBAR CONTROLS
+# ==========================================
+st.sidebar.header("🕹️ Scanner Settings")
+
+universe_choice = st.sidebar.selectbox(
+    "Select Ticker Universe",
+    [
+        "Top Active ETFs (100)",
+        "Mega-Cap Tech & Growth",
+        "Dividend Aristocrats",
+        "Custom List",
+    ],
+)
+
+if universe_choice == "Top Active ETFs (100)":
+  selected_tickers = TOP_ETFS
+elif universe_choice == "Mega-Cap Tech & Growth":
+  selected_tickers = MEGA_CAP_TECH
+elif universe_choice == "Dividend Aristocrats":
+  selected_tickers = DIVIDEND_ARISTOCRATS
+else:
+  custom_input = st.sidebar.text_area(
+      "Enter Custom Tickers (comma separated)", "SPY, QQQ, NVDA, IBIT, TQQQ"
+  )
+  selected_tickers = [
+      t.strip().upper() for t in custom_input.split(",") if t.strip()
   ]
 
-  if scan_strategy == "Squeeze / Penny Stock Multiplier":
-    st.sidebar.header("📁 Squeeze Asset Array")
-    penny_input = st.sidebar.text_area(
-        "Speculative Screener Nodes:",
-        ", ".join(DEFAULT_SPECULATIVE),
-        key="penny_input_key",
-    )
-    tickers = list(
-        dict.fromkeys(
-            [t.strip().upper() for t in penny_input.split(",") if t.strip()]
-        )
-    )
-    max_price_filter = 15.00
-  else:
-    st.sidebar.header("📁 Core Matrix Framework")
-    source_type = st.sidebar.radio(
-        "Data Source Configuration:",
-        [
-            "Custom Watchlist",
-            "Top ETFs Array",
-            "Full S&P 500 Index",
-            "Dow Jones 30",
-        ],
-        key="source_type_key",
-    )
-    if source_type == "Custom Watchlist":
-      default_watchlist = (
-          "GDX, AAPL, TSLA, MSFT, NVDA, AMD, AMZN, META, GOOGL, LLY, JPM"
+scan_strategy = st.sidebar.selectbox(
+    "Scan Logic / Strategy",
+    [
+        "Universal 4-HMA Trend-Following",
+        "Squeeze / Penny Stock Multiplier",
+        "EMA Cross + RSI Momentum",
+    ],
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ Risk & Filter Parameters")
+
+account_capital = st.sidebar.number_input(
+    "Total Portfolio Capital ($)", value=25000, step=1000
+)
+max_risk_pct = (
+    st.sidebar.slider("Max Account Risk Per Trade (%)", 0.5, 5.0, 1.0, 0.25)
+    / 100.0
+)
+risk_multiplier = st.sidebar.slider(
+    "ATR Risk Multiplier (Stop Distance)", 1.0, 4.0, 2.0, 0.5
+)
+
+if scan_strategy == "Universal 4-HMA Trend-Following":
+  hma_stop_mode = st.sidebar.selectbox(
+      "HMA Stop Placement",
+      [
+          "ATR Multiplier",
+          "Most Recent Red HMA Low",
+          "2nd Most Recent Red HMA Low",
+      ],
+  )
+  exit_style = st.sidebar.selectbox(
+      "Exit Style",
+      [
+          "Hybrid Scale-Out (Fixed Targets + Trail)",
+          "Pure Trail (No Fixed Target)",
+      ],
+  )
+else:
+  hma_stop_mode = "ATR Multiplier"
+  exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
+
+target_1_multiplier = st.sidebar.number_input(
+    "Target 1 R-Multiple (e.g. 1.5 R)", value=1.5, step=0.5
+)
+target_2_multiplier = st.sidebar.number_input(
+    "Target 2 R-Multiple (e.g. 3.0 R)", value=3.0, step=0.5
+)
+
+max_price_filter = (
+    15.0
+    if scan_strategy == "Squeeze / Penny Stock Multiplier"
+    else st.sidebar.number_input("Max Asset Price Filter ($)", value=2000.0)
+)
+atr_period = st.sidebar.number_input("ATR Calculation Period", value=14)
+
+
+# ==========================================
+# HELPER MATHEMATICAL FUNCTIONS
+# ==========================================
+def calculate_hma(series, period):
+  wma_half = (
+      series.rolling(window=int(period / 2))
+      .apply(
+          lambda x: np.dot(x, np.arange(1, int(period / 2) + 1))
+          / np.arange(1, int(period / 2) + 1).sum(),
+          raw=True,
       )
-      watchlist_input = st.sidebar.text_area(
-          "Edit Watchlist Arrays:", default_watchlist, key="watchlist_input_key"
-      )
-      tickers = list(
-          dict.fromkeys(
-              [
-                  t.strip().upper()
-                  for t in watchlist_input.split(",")
-                  if t.strip()
-              ]
-          )
-      )
-    elif source_type == "Top ETFs Array":
-      raw_etfs = list(dict.fromkeys(TOP_ETFS))
-      max_scan = st.sidebar.slider(
-          "ETF Scan Depth:", 5, len(raw_etfs), len(raw_etfs), key="etf_depth"
-      )
-      tickers = raw_etfs[:max_scan]
-    elif source_type == "Full S&P 500 Index":
-      raw_tickers = list(dict.fromkeys(FULL_SP500))
-      max_scan = st.sidebar.slider(
-          "S&P 500 Scan Depth:",
-          10,
-          len(raw_tickers),
-          50,
-          step=5,
-          key="sp_depth",
-      )
-      tickers = raw_tickers[:max_scan]
-    else:
-      tickers = list(dict.fromkeys(DOW_30))
-    max_price_filter = 99999.0
+  )
+  wma_full = series.rolling(window=period).apply(
+      lambda x: np.dot(x, np.arange(1, period + 1)) / np.arange(1, period + 1).sum(),
+      raw=True,
+  )
+  diff = 2 * wma_half - wma_full
+  sqrt_period = int(np.sqrt(period))
+  hma = diff.rolling(window=sqrt_period).apply(
+      lambda x: np.dot(x, np.arange(1, sqrt_period + 1))
+      / np.arange(1, sqrt_period + 1).sum(),
+      raw=True,
+  )
+  return hma
 
-  st.sidebar.write("---")
-  st.sidebar.header("⚙️ Risk Parameters")
-  atr_period = st.sidebar.slider("ATR Lookback", 5, 30, 14, key="atr_period_key")
 
-  if scan_strategy == "Universal 4-HMA Trend-Following":
-    hma_stop_mode = st.sidebar.selectbox(
-        "HMA Stop-Loss Mode:",
-        [
-            "Most Recent Red HMA Low",
-            "2nd Most Recent Red HMA Low",
-            "ATR Multiplier",
-        ],
-        key="hma_stop_mode_key",
-    )
-    risk_multiplier = (
-        st.sidebar.slider(
-            "Risk Envelope Scalar (ATR)",
-            0.5,
-            5.0,
-            1.5,
-            step=0.1,
-            key="risk_multiplier_key",
-        )
-        if hma_stop_mode == "ATR Multiplier"
-        else 1.5
-    )
-    st.sidebar.write("---")
-    exit_style = st.sidebar.radio(
-        "Select Exit Methodology:",
-        [
-            "Hybrid Scale-Out (Fixed Targets + Trail)",
-            "Pure Trailing Exit (No Fixed Targets)",
-        ],
-        key="exit_style_key",
-    )
-    if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)":
-      target_1_multiplier = st.sidebar.slider(
-          "Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key"
-      )
-      target_2_multiplier = st.sidebar.slider(
-          "Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key"
-      )
-    else:
-      target_1_multiplier, target_2_multiplier = None, None
-  else:
-    exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
-    risk_multiplier = st.sidebar.slider(
-        "Risk Envelope Scalar (Stops)",
-        1.0,
-        4.0,
-        1.5,
-        step=0.1,
-        key="risk_multiplier_key",
-    )
-    st.sidebar.write("---")
-    target_1_multiplier = st.sidebar.slider(
-        "Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key"
-    )
-    target_2_multiplier = st.sidebar.slider(
-        "Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key"
-    )
+def calculate_mhls_and_volatility(df):
+  lookbacks = [21, 63, 126, 252]
+  scores = []
+  for lb in lookbacks:
+    if len(df) >= lb:
+      ret = (df["Close"].iloc[-1] - df["Close"].iloc[-lb]) / df["Close"].iloc[
+          -lb
+      ]
+      scores.append(ret)
+  mhls = np.mean(scores) if scores else 0.0
 
-  def scan_ticker(ticker_symbol):
-    try:
-      df = yf.Ticker(ticker_symbol).history(period="250d", auto_adjust=False)
-      if df.empty or len(df) < 200:
-        return None
+  daily_returns = df["Close"].pct_change().dropna()
+  ann_vol = (
+      daily_returns.std() * np.sqrt(252) if len(daily_returns) > 20 else 0.20
+  )
 
-      df["SMA_50"] = df["Close"].rolling(window=50).mean()
-      df["SMA_200"] = df["Close"].rolling(window=200).mean()
-      df["HMA_Open"] = calculate_hma(df["Open"], 20)
-      df["HMA_Close"] = calculate_hma(df["Close"], 20)
-      df["HMA_High"] = calculate_hma(df["High"], 20)
-      df["HMA_Low"] = calculate_hma(df["Low"], 20)
-      df["EMA_9"] = df["Close"].ewm(span=9, adjust=False).mean()
-      df["EMA_21"] = df["Close"].ewm(span=21, adjust=False).mean()
+  raw_weight = (mhls / (ann_vol + 1e-5)) if ann_vol > 0 else 0.0
+  score_weight_pct = np.clip(raw_weight * 100, 0, 100)
 
-      delta = df["Close"].diff()
-      gain = (delta.where(delta > 0, 0)).fillna(0)
-      loss = (-delta.where(delta < 0, 0)).fillna(0)
-      rs = gain.rolling(14).mean() / (loss.rolling(14).mean() + 1e-10)
-      df["RSI"] = 100 - (100 / (1 + rs))
+  return round(mhls, 4), raw_weight, score_weight_pct, ann_vol
 
-      df["Vol_Avg"] = df["Volume"].rolling(window=10).mean()
-      df["Relative_Volume"] = df["Volume"] / (df["Vol_Avg"] + 1e-10)
 
-      high_low = df["High"] - df["Low"]
-      high_close = np.abs(df["High"] - df["Close"].shift())
-      low_close = np.abs(df["Low"] - df["Close"].shift())
-      df["ATR"] = (
-          pd.concat([high_low, high_close, low_close], axis=1)
-          .max(axis=1)
-          .rolling(atr_period)
-          .mean()
-      )
-
-      latest, prev, prev_2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
-      price = latest["Close"]
-      if price > max_price_filter:
-        return None
-
-      mhls, score_weight_float, score_weight_pct, ann_vol = (
-          calculate_mhls_and_volatility(df)
-      )
-
-      atr = latest["ATR"]
-      risk_amount = risk_multiplier * atr
-      ema_pinch = abs(latest["EMA_9"] - latest["EMA_21"]) / latest["EMA_21"]
-      vol_spike = latest["Relative_Volume"]
-      is_coiling = (
-          "CRITICAL SQUEEZE"
-          if (ema_pinch < 0.015 and vol_spike > 1.2)
-          else ("Yes" if ema_pinch < 0.015 else "No")
-      )
-      bullish_cross = (prev["EMA_9"] <= prev["EMA_21"]) and (
-          latest["EMA_9"] > latest["EMA_21"]
-      )
-      bearish_cross = (prev["EMA_9"] >= prev["EMA_21"]) and (
-          latest["EMA_9"] < latest["EMA_21"]
-      )
-
-      if scan_strategy == "Universal 4-HMA Trend-Following":
-        above_smas = (price > latest["SMA_50"]) and (price > latest["SMA_200"])
-        recent_cross = (
-            (prev["HMA_Close"] <= prev["HMA_Open"])
-            and (latest["HMA_Close"] > latest["HMA_Open"])
-        ) or (
-            (prev_2["HMA_Close"] <= prev_2["HMA_Open"])
-            and (prev["HMA_Close"] > prev["HMA_Open"])
-        )
-        hma_close_sloping_up = latest["HMA_Close"] > prev["HMA_Close"]
-        hma_open_sloping_up = latest["HMA_Open"] > prev["HMA_Open"]
-        closed_above_white = price > latest["HMA_Close"]
-        hma_high, hma_low = max(latest["HMA_High"], latest["HMA_Low"]), min(
-            latest["HMA_High"], latest["HMA_Low"]
-        )
-        is_inside_hma_channel = (price >= hma_low) and (price <= hma_high)
-
-        red_hma_df = df[df["HMA_Close"] < df["HMA_Open"]]
-        if hma_stop_mode == "Most Recent Red HMA Low":
-          stop = (
-              red_hma_df.iloc[-1]["HMA_Low"]
-              if not red_hma_df.empty
-              else latest["HMA_Low"]
-          )
-          stop_type = "Most Recent Red HMA Low"
-        elif hma_stop_mode == "2nd Most Recent Red HMA Low":
-          stop = (
-              red_hma_df.iloc[-2]["HMA_Low"]
-              if len(red_hma_df) >= 2
-              else (
-                  red_hma_df.iloc[-1]["HMA_Low"]
-                  if not red_hma_df.empty
-                  else latest["HMA_Low"]
-              )
-          )
-          stop_type = "2nd Most Recent Red HMA Low"
-        else:
-          stop = price - risk_amount
-          stop_type = f"ATR Multiplier ({risk_multiplier}x)"
-
-        risk_per_share = max(price - stop, 0.01)
-        t1_val = (
-            round(price + (risk_per_share * target_1_multiplier), 2)
-            if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)"
-            else "PURE TRAIL"
-        )
-        t2_val = (
-            round(price + (risk_per_share * target_2_multiplier), 2)
-            if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)"
-            else "PURE TRAIL"
-        )
-
-        if (
-            above_smas
-            and recent_cross
-            and hma_close_sloping_up
-            and hma_open_sloping_up
-            and closed_above_white
-        ):
-          signal = "🟢 BUY ENTRY"
-        elif price < stop:
-          signal = "🔴 EXIT TRIGGER"
-        elif is_inside_hma_channel:
-          signal = "🟡 HOLD (Consolidating)"
-        elif latest["HMA_Close"] > latest["HMA_Open"] and above_smas:
-          signal = "🟡 BULLISH TREND"
-        else:
-          signal = "⚪ NEUTRAL / WAIT"
-
-      elif scan_strategy == "Squeeze / Penny Stock Multiplier":
-        stop = price - risk_amount
-        stop_type = "ATR Envelope"
-        t1_val = round(price + (risk_amount * target_1_multiplier), 2)
-        t2_val = round(price + (risk_amount * target_2_multiplier), 2)
-        signal = (
-            "🟢 EXPANSION TRIGGER"
-            if (
-                bullish_cross
-                or (
-                    is_coiling == "CRITICAL SQUEEZE"
-                    and latest["Close"] > latest["EMA_9"]
-                )
-            )
-            else "⚪ MONITOR COILING"
-        )
-      else:
-        stop_type = "ATR Envelope"
-        if bullish_cross and latest["RSI"] > 40:
-          signal, stop = "🟢 BUY TRIGGER", price - risk_amount
-          t1_val, t2_val = round(
-              price + (risk_amount * target_1_multiplier), 2
-          ), round(price + (risk_amount * target_2_multiplier), 2)
-        elif bearish_cross or (
-            latest["RSI"] > 70 and latest["EMA_9"] < latest["EMA_21"]
-        ):
-          signal, stop = "🔴 SELL TRIGGER", price + risk_amount
-          t1_val, t2_val = round(
-              price - (risk_amount * target_1_multiplier), 2
-          ), round(price - (risk_amount * target_2_multiplier), 2)
-        elif latest["EMA_9"] > latest["EMA_21"]:
-          signal, stop = "🟡 HOLD (Bullish)", price - risk_amount
-          t1_val, t2_val = round(
-              price + (risk_amount * target_1_multiplier), 2
-          ), round(price + (risk_amount * target_2_multiplier), 2)
-        else:
-          signal, stop = "⚪ HOLD (Cash)", price + risk_amount
-          t1_val, t2_val = round(
-              price - (risk_amount * target_1_multiplier), 2
-          ), round(price - (risk_amount * target_2_multiplier), 2)
-
-      return {
-          "Ticker": ticker_symbol,
-          "Price": round(price, 2),
-          "MHLS": mhls,
-          "Score Weight": f"{int(score_weight_pct)}%",
-          "Score Weight Raw": score_weight_float,
-          "Ann Volatility %": round(ann_vol * 100, 2),
-          "Ann Volatility Raw": ann_vol,
-          "Signal": signal,
-          "Calculated Stop": round(stop, 2),
-          "Stop Type": stop_type,
-          "Target 1": t1_val,
-          "Target 2": t2_val,
-          "50 SMA": round(latest["SMA_50"], 2),
-          "200 SMA": round(latest["SMA_200"], 2),
-          "RSI": round(latest["RSI"], 1),
-          "Compression Status": is_coiling,
-      }
-    except Exception:
+# ==========================================
+# SCANNER ENGINE
+# ==========================================
+def scan_ticker(ticker_symbol):
+  try:
+    df = yf.Ticker(ticker_symbol).history(period="1y", auto_adjust=False)
+    if df.empty or len(df) < 50:
       return None
 
-  if st.button(
-      "🔥 Execute System Framework Architecture Scan",
-      type="primary",
-      use_container_width=True,
-  ):
-    with st.spinner("Processing framework algorithms..."):
-      results = [res for t in tickers if (res := scan_ticker(t)) is not None]
-      if results:
-        st.session_state["scan_data"] = pd.DataFrame(results)
-        st.session_state["total_nodes"] = len(tickers)
-        st.session_state["run_success"] = True
-      else:
-        st.error("No valid matrix node data found.")
-
-  if st.session_state.get("run_success"):
-    scan_df = st.session_state["scan_data"]
-    total_nodes = st.session_state.get("total_nodes", len(scan_df))
-    buy_hits = len(scan_df[scan_df["Signal"].str.contains("🟢")])
-    exit_hits = len(scan_df[scan_df["Signal"].str.contains("🔴")])
-    hold_hits = len(scan_df[scan_df["Signal"].str.contains("🟡")])
-    neutral_hits = len(scan_df[scan_df["Signal"].str.contains("⚪")])
-
-    st.markdown("### 🔍 **Scan Results Summary**")
-    sc_col1, sc_col2, sc_col3, sc_col4, sc_col5 = st.columns(5)
-    sc_col1.metric("Nodes Scanned", f"{total_nodes} Tickers")
-    sc_col2.metric("🟢 Actionable Buy Signals", f"{buy_hits} Hits")
-    sc_col3.metric("🔴 Exit Triggers", f"{exit_hits} Hits")
-    sc_col4.metric("🟡 Trend Holds", f"{hold_hits} Hits")
-    sc_col5.metric("⚪ Neutral / Cash", f"{neutral_hits} Hits")
-
-    st.write("---")
-    display_columns = [
-        "Ticker",
-        "Price",
-        "MHLS",
-        "Score Weight",
-        "Ann Volatility %",
-        "Signal",
-        "Calculated Stop",
-        "Target 1",
-        "Target 2",
-        "50 SMA",
-        "200 SMA",
-        "RSI",
-    ]
-    st.dataframe(
-        scan_df[display_columns], use_container_width=True, height=280
+    df["SMA_50"] = df["Close"].rolling(window=min(50, len(df))).mean()
+    df["SMA_200"] = (
+        df["Close"].rolling(window=200).mean()
+        if len(df) >= 200
+        else df["SMA_50"]
     )
-    st.write("---")
+    df["HMA_Open"] = calculate_hma(df["Open"], 20)
+    df["HMA_Close"] = calculate_hma(df["Close"], 20)
+    df["HMA_High"] = calculate_hma(df["High"], 20)
+    df["HMA_Low"] = calculate_hma(df["Low"], 20)
+    df["EMA_9"] = df["Close"].ewm(span=9, adjust=False).mean()
+    df["EMA_21"] = df["Close"].ewm(span=21, adjust=False).mean()
 
-    st.subheader("🧮 Advanced Position Sizing & Direct Portfolio Logging")
+    delta = df["Close"].diff()
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    rs = gain.rolling(14).mean() / (loss.rolling(14).mean() + 1e-10)
+    df["RSI"] = 100 - (100 / (1 + rs))
 
-    calc_col1, calc_col2 = st.columns([1, 1.2])
+    df["Vol_Avg"] = df["Volume"].rolling(window=10).mean()
+    df["Relative_Volume"] = df["Volume"] / (df["Vol_Avg"] + 1e-10)
 
-    with calc_col1:
-      available_signals = ["Show All Categories"] + sorted(
-          scan_df["Signal"].unique().tolist()
+    high_low = df["High"] - df["Low"]
+    high_close = np.abs(df["High"] - df["Close"].shift())
+    low_close = np.abs(df["Low"] - df["Close"].shift())
+    df["ATR"] = (
+        pd.concat([high_low, high_close, low_close], axis=1)
+        .max(axis=1)
+        .rolling(int(atr_period))
+        .mean()
+    )
+
+    latest, prev, prev_2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
+    price = latest["Close"]
+
+    if price > max_price_filter:
+      return None
+
+    mhls, score_weight_float, score_weight_pct, ann_vol = (
+        calculate_mhls_and_volatility(df)
+    )
+
+    atr = latest["ATR"]
+    risk_amount = risk_multiplier * atr
+    ema_pinch = abs(latest["EMA_9"] - latest["EMA_21"]) / latest["EMA_21"]
+    vol_spike = latest["Relative_Volume"]
+    is_coiling = (
+        "CRITICAL SQUEEZE"
+        if (ema_pinch < 0.015 and vol_spike > 1.2)
+        else ("Yes" if ema_pinch < 0.015 else "No")
+    )
+    bullish_cross = (prev["EMA_9"] <= prev["EMA_21"]) and (
+        latest["EMA_9"] > latest["EMA_21"]
+    )
+    bearish_cross = (prev["EMA_9"] >= prev["EMA_21"]) and (
+        latest["EMA_9"] < latest["EMA_21"]
+    )
+
+    if scan_strategy == "Universal 4-HMA Trend-Following":
+      above_smas = (price > latest["SMA_50"]) and (price > latest["SMA_200"])
+      recent_cross = (
+          (prev["HMA_Close"] <= prev["HMA_Open"])
+          and (latest["HMA_Close"] > latest["HMA_Open"])
+      ) or (
+          (prev_2["HMA_Close"] <= prev_2["HMA_Open"])
+          and (prev["HMA_Close"] > prev["HMA_Open"])
       )
-      selected_signal_filter = st.selectbox(
-          "Filter Assets by Signal State:",
-          available_signals,
-          key="signal_filter_key",
+      hma_close_sloping_up = latest["HMA_Close"] > prev["HMA_Close"]
+      hma_open_sloping_up = latest["HMA_Open"] > prev["HMA_Open"]
+      closed_above_white = price > latest["HMA_Close"]
+      hma_high, hma_low = max(latest["HMA_High"], latest["HMA_Low"]), min(
+          latest["HMA_High"], latest["HMA_Low"]
       )
-      filtered_calc_df = (
-          scan_df[scan_df["Signal"] == selected_signal_filter]
-          if selected_signal_filter != "Show All Categories"
-          else scan_df
-      )
+      is_inside_hma_channel = (price >= hma_low) and (price <= hma_high)
 
-      if not filtered_calc_df.empty:
-        calc_ticker = st.selectbox(
-            "Select Asset from Scanned List:",
-            filtered_calc_df["Ticker"].tolist(),
-            key="calc_select_key",
+      red_hma_df = df[df["HMA_Close"] < df["HMA_Open"]]
+      if hma_stop_mode == "Most Recent Red HMA Low":
+        stop = (
+            red_hma_df.iloc[-1]["HMA_Low"]
+            if not red_hma_df.empty
+            else latest["HMA_Low"]
         )
-        ticker_data = filtered_calc_df[
-            filtered_calc_df["Ticker"] == calc_ticker
-        ].iloc[0]
-
-        budget_price_val = float(ticker_data["Price"])
-        stop_val = float(ticker_data["Calculated Stop"])
-        t1_val, t2_val = str(ticker_data["Target 1"]), str(
-            ticker_data["Target 2"]
-        )
-        score_weight = float(ticker_data["Score Weight Raw"])
-        ann_vol = float(ticker_data["Ann Volatility Raw"])
-
-        st.markdown("#### **Sizing Options**")
-        sizing_method = st.radio(
-            "Select Position Sizing Model:",
-            ["Volumetric (MHLS + Volatility)", "Standard Fixed Risk (ATR)"],
-            key="sizing_method_choice",
-        )
-
-        acc_balance = st.number_input(
-            "Total Portfolio Value ($)",
-            min_value=100.0,
-            value=10000.0,
-            step=500.0,
-        )
-        avail_cash = st.number_input(
-            "Available Liquid Cash ($)",
-            min_value=0.0,
-            value=5000.0,
-            step=500.0,
-        )
-        target_risk_pct = (
-            st.slider(
-                "Target Risk %",
-                0.25,
-                10.0,
-                2.0,
-                0.25,
-                help="Target portfolio risk percentage",
+        stop_type = "Most Recent Red HMA Low"
+      elif hma_stop_mode == "2nd Most Recent Red HMA Low":
+        stop = (
+            red_hma_df.iloc[-2]["HMA_Low"]
+            if len(red_hma_df) >= 2
+            else (
+                red_hma_df.iloc[-1]["HMA_Low"]
+                if not red_hma_df.empty
+                else latest["HMA_Low"]
             )
-            / 100.0
         )
+        stop_type = "2nd Most Recent Red HMA Low"
       else:
-        calc_ticker = None
+        stop = price - risk_amount
+        stop_type = f"ATR Multiplier ({risk_multiplier}x)"
 
-    with calc_col2:
-      if calc_ticker is not None:
-        if sizing_method == "Volumetric (MHLS + Volatility)":
-          if ann_vol > 0:
-            target_position_value = (
-                score_weight * (target_risk_pct / ann_vol) * acc_balance
-            )
-            final_shares = max(
-                0,
-                min(
-                    int(target_position_value / budget_price_val),
-                    int(avail_cash / budget_price_val),
-                ),
-            )
-          else:
-            final_shares = 0
+      risk_per_share = max(price - stop, 0.01)
+      t1_val = (
+          round(price + (risk_per_share * target_1_multiplier), 2)
+          if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)"
+          else "PURE TRAIL"
+      )
+      t2_val = (
+          round(price + (risk_per_share * target_2_multiplier), 2)
+          if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)"
+          else "PURE TRAIL"
+      )
 
-          st.markdown("### **Volumetric Position Model Output**")
-          st.write(f"**MHLS:** `{ticker_data['MHLS']}`")
-          st.write(f"**Score Weight:** `{ticker_data['Score Weight']}`")
-          st.write(
-              f"**Annualized Volatility:** `{ticker_data['Ann Volatility %']}%`"
+      if (
+          above_smas
+          and recent_cross
+          and hma_close_sloping_up
+          and hma_open_sloping_up
+          and closed_above_white
+      ):
+        signal = "🟢 BUY ENTRY"
+      elif price < stop:
+        signal = "🔴 EXIT TRIGGER"
+      elif is_inside_hma_channel:
+        signal = "🟡 HOLD (Consolidating)"
+      elif latest["HMA_Close"] > latest["HMA_Open"] and above_smas:
+        signal = "🟡 BULLISH TREND"
+      else:
+        signal = "⚪ NEUTRAL / WAIT"
+
+    elif scan_strategy == "Squeeze / Penny Stock Multiplier":
+      stop = price - risk_amount
+      stop_type = "ATR Envelope"
+      t1_val = round(price + (risk_amount * target_1_multiplier), 2)
+      t2_val = round(price + (risk_amount * target_2_multiplier), 2)
+      signal = (
+          "🟢 EXPANSION TRIGGER"
+          if (
+              bullish_cross
+              or (
+                  is_coiling == "CRITICAL SQUEEZE"
+                  and latest["Close"] > latest["EMA_9"]
+              )
           )
-          st.metric("Recommended Share Count", f"{final_shares:,} Shares")
-          st.metric(
-              "Total Capital Allocation",
-              f"${final_shares * budget_price_val:,.2f}",
-              delta=(
-                  f"{(final_shares * budget_price_val / acc_balance)*100:.1f}%"
-                  " of Portfolio"
-              ),
-          )
+          else "⚪ MONITOR COILING"
+      )
+    else:
+      stop_type = "ATR Envelope"
+      if bullish_cross and latest["RSI"] > 40:
+        signal, stop = "🟢 BUY TRIGGER", price - risk_amount
+        t1_val, t2_val = round(
+            price + (risk_amount * target_1_multiplier), 2
+        ), round(price + (risk_amount * target_2_multiplier), 2)
+      elif bearish_cross or (
+          latest["RSI"] > 70 and latest["EMA_9"] < latest["EMA_21"]
+      ):
+        signal, stop = "🔴 SELL TRIGGER", price + risk_amount
+        t1_val, t2_val = round(
+            price - (risk_amount * target_1_multiplier), 2
+        ), round(price - (risk_amount * target_2_multiplier), 2)
+      elif latest["EMA_9"] > latest["EMA_21"]:
+        signal, stop = "🟡 HOLD (Bullish)", price - risk_amount
+        t1_val, t2_val = round(
+            price + (risk_amount * target_1_multiplier), 2
+        ), round(price + (risk_amount * target_2_multiplier), 2)
+      else:
+        signal, stop = "⚪ HOLD (Cash)", price + risk_amount
+        t1_val, t2_val = round(
+            price - (risk_amount * target_1_multiplier), 2
+        ), round(price - (risk_amount * target_2_multiplier), 2)
 
-        else:
-          risk_per_share = max(budget_price_val - stop_val, 0.01)
-          dollar_risk_allowed = acc_balance * target_risk_pct
-          shares_by_risk = int(dollar_risk_allowed / risk_per_share)
-          shares_by_cash = int(avail_cash / budget_price_val)
-          final_shares = max(0, min(shares_by_risk, shares_by_cash))
+    # Position Sizing Calculation
+    dollar_risk = account_capital * max_risk_pct
+    risk_per_share_calc = max(price - stop, 0.01) if price > stop else 0.01
+    suggested_shares = int(dollar_risk / risk_per_share_calc)
+    position_value = suggested_shares * price
 
-          st.markdown("### **Fixed Risk (ATR) Model Output**")
-          st.metric("Recommended Share Count", f"{final_shares:,} Shares")
-          st.metric(
-              "Budget Capital Required",
-              f"${final_shares * budget_price_val:,.2f}",
-          )
+    return {
+        "Ticker": ticker_symbol,
+        "Price": round(price, 2),
+        "Signal": signal,
+        "Stop Loss": round(stop, 2),
+        "Stop Type": stop_type,
+        "Target 1": t1_val,
+        "Target 2": t2_val,
+        "Suggested Shares": suggested_shares,
+        "Position Size ($)": round(position_value, 2),
+        "MHLS Score": mhls,
+        "Vol Weight Score": f"{int(score_weight_pct)}%",
+        "Ann Volatility": f"{round(ann_vol * 100, 1)}%",
+        "50 SMA": round(latest["SMA_50"], 2),
+        "200 SMA": round(latest["SMA_200"], 2),
+        "RSI": round(latest["RSI"], 1),
+        "Squeeze Status": is_coiling,
+    }
+  except Exception:
+    return None
 
-        st.write("---")
-        st.markdown("#### **💾 Log Trade to Portfolio Manager**")
-        actual_fill_price_input = st.number_input(
-            "Actual Broker Fill Price ($)",
-            min_value=0.01,
-            value=budget_price_val,
-            step=0.01,
-        )
-        entry_date_input = st.date_input("Entry Date", value=datetime.today())
-        trade_notes = st.text_input(
-            "Trade Notes / Setup Context",
-            value=(
-                f"MHLS: {ticker_data['MHLS']} | Weight:"
-                f" {ticker_data['Score Weight']} | Vol:"
-                f" {ticker_data['Ann Volatility %']}%"
-            ),
-        )
-
-        if st.button("🚀 Open & Track Position", type="primary"):
-          conn = sqlite3.connect(DB_FILE)
-          c = conn.cursor()
-          c.execute(
-              """
-                        INSERT INTO active_positions (ticker, strategy, entry_date, budget_price, actual_fill_price, shares, stop_loss, target_1, target_2, notes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-              (
-                  calc_ticker,
-                  f"{scan_strategy} ({sizing_method})",
-                  str(entry_date_input),
-                  budget_price_val,
-                  actual_fill_price_input,
-                  final_shares,
-                  stop_val,
-                  t1_val,
-                  t2_val,
-                  trade_notes,
-              ),
-          )
-
-          pos_cost = actual_fill_price_input * final_shares
-          new_cash = max(0.0, avail_cash - pos_cost)
-          c.execute(
-              """
-                        INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-              (
-                  str(entry_date_input),
-                  new_cash,
-                  pos_cost,
-                  acc_balance,
-                  f"Opened Position: {calc_ticker}",
-              ),
-          )
-
-          conn.commit()
-          conn.close()
-          st.success(
-              f"✅ Position for {calc_ticker} logged successfully to active"
-              " portfolio!"
-          )
 
 # ==========================================
-# PAGE 2: ACTIVE PORTFOLIO MANAGER
+# MAIN INTERFACE & SCAN RUNNER
 # ==========================================
-elif app_mode == "💼 Active Portfolio Manager":
-  st.subheader("💼 Active Position Management Core")
+col1, col2 = st.columns([3, 1])
+with col1:
+  st.subheader(f"Scanning Universe: {universe_choice}")
+  st.write(f"**Total Tickers in Scope:** {len(selected_tickers)}")
+with col2:
+  run_scan = st.button("🚀 Execute Market Scan", use_container_width=True)
 
-  conn = sqlite3.connect(DB_FILE)
-  df_active = pd.read_sql_query("SELECT * FROM active_positions", conn)
-  conn.close()
+if run_scan:
+  progress_bar = st.progress(0)
+  status_text = st.empty()
+  results = []
 
-  if df_active.empty:
-    st.info(
-        "No active positions tracked. Open positions using the AlphaScan Engine"
-        " scanner."
+  for idx, ticker in enumerate(selected_tickers):
+    status_text.text(
+        f"Scanning {ticker} ({idx+1}/{len(selected_tickers)})..."
+    )
+    res = scan_ticker(ticker)
+    if res:
+      results.append(res)
+    progress_bar.progress((idx + 1) / len(selected_tickers))
+
+  status_text.empty()
+  progress_bar.empty()
+
+  if results:
+    results_df = pd.DataFrame(results)
+
+    # Filter controls
+    st.markdown("---")
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+      signal_filter = st.multiselect(
+          "Filter by Signal",
+          options=list(results_df["Signal"].unique()),
+          default=list(results_df["Signal"].unique()),
+      )
+    with filter_col2:
+      min_mhls = st.slider(
+          "Minimum MHLS Momentum Score",
+          float(results_df["MHLS Score"].min()),
+          float(results_df["MHLS Score"].max()),
+          float(results_df["MHLS Score"].min()),
+      )
+
+    filtered_df = results_df[
+        (results_df["Signal"].isin(signal_filter))
+        & (results_df["MHLS Score"] >= min_mhls)
+    ]
+
+    st.subheader(f"Scan Results ({len(filtered_df)} Hits)")
+    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
+    # CSV Download
+    csv_data = filtered_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Download Scan Results (CSV)",
+        data=csv_data,
+        file_name="market_scan_results.csv",
+        mime="text/csv",
     )
   else:
-    st.write("### **Live Open Positions (Fully Editable Log)**")
-    df_active["Fill_Slippage_$"] = (
-        df_active["actual_fill_price"] - df_active["budget_price"]
-    )
-
-    edited_df = st.data_editor(
-        df_active[[
-            "id",
-            "ticker",
-            "strategy",
-            "entry_date",
-            "budget_price",
-            "actual_fill_price",
-            "Fill_Slippage_$",
-            "shares",
-            "stop_loss",
-            "target_1",
-            "target_2",
-            "notes",
-        ]],
-        disabled=["id", "Fill_Slippage_$"],
-        use_container_width=True,
-        key="active_editor_all",
-    )
-
-    if st.button("💾 Save Active Position Edits", type="primary"):
-      conn = sqlite3.connect(DB_FILE)
-      c = conn.cursor()
-      for idx, row in edited_df.iterrows():
-        c.execute(
-            """
-                    UPDATE active_positions 
-                    SET ticker = ?, strategy = ?, entry_date = ?, budget_price = ?, actual_fill_price = ?, shares = ?, stop_loss = ?, target_1 = ?, target_2 = ?, notes = ?
-                    WHERE id = ?
-                """,
-            (
-                row["ticker"],
-                row["strategy"],
-                str(row["entry_date"]),
-                row["budget_price"],
-                row["actual_fill_price"],
-                int(row["shares"]),
-                row["stop_loss"],
-                str(row["target_1"]),
-                str(row["target_2"]),
-                row["notes"],
-                row["id"],
-            ),
-        )
-      conn.commit()
-      conn.close()
-      st.success("✅ All position modifications updated and saved!")
-      st.rerun()
-
-    st.write("---")
-    st.subheader("🚪 Exit & Close Position")
-
-    pos_id_to_close = st.selectbox(
-        "Select Active Position to Close:",
-        df_active["id"].tolist(),
-        format_func=lambda x: (
-            f"ID #{x} - {df_active[df_active['id']==x]['ticker'].values[0]}"
-            f" ({df_active[df_active['id']==x]['shares'].values[0]} Shares)"
-        ),
-    )
-    selected_pos = df_active[df_active["id"] == pos_id_to_close].iloc[0]
-
-    c1, c2, c3 = st.columns(3)
-    exit_date = c1.date_input("Exit Date", value=datetime.today())
-    exit_price = c2.number_input(
-        "Broker Exit Fill Price ($)",
-        min_value=0.01,
-        value=float(selected_pos["actual_fill_price"]),
-        step=0.01,
-    )
-
-    try:
-      entry_dt = datetime.strptime(
-          str(selected_pos["entry_date"]), "%Y-%m-%d"
-      ).date()
-    except Exception:
-      entry_dt = datetime.today().date()
-
-    holding_days = max((exit_date - entry_dt).days, 1)
-
-    shares = selected_pos["shares"]
-    realized_pnl = round(
-        (exit_price - selected_pos["actual_fill_price"]) * shares, 2
-    )
-    pnl_pct = round(
-        (
-            (exit_price - selected_pos["actual_fill_price"])
-            / selected_pos["actual_fill_price"]
-        )
-        * 100,
-        2,
-    )
-    slippage = round(
-        selected_pos["actual_fill_price"] - selected_pos["budget_price"], 2
-    )
-
-    c3.metric(
-        "Projected Realized P&L", f"${realized_pnl:,.2f}", f"{pnl_pct}%"
-    )
-
-    if st.button(
-        "🔒 Confirm Exit & Transfer to Trader Journal", type="primary"
-    ):
-      conn = sqlite3.connect(DB_FILE)
-      c = conn.cursor()
-      c.execute(
-          """
-                INSERT INTO trade_journal (ticker, strategy, entry_date, exit_date, holding_days, budget_price, actual_fill_price, exit_price, shares, realized_pnl, pnl_pct, slippage, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-          (
-              selected_pos["ticker"],
-              selected_pos["strategy"],
-              str(selected_pos["entry_date"]),
-              str(exit_date),
-              holding_days,
-              selected_pos["budget_price"],
-              selected_pos["actual_fill_price"],
-              exit_price,
-              shares,
-              realized_pnl,
-              pnl_pct,
-              slippage,
-              selected_pos["notes"],
-          ),
-      )
-      c.execute(
-          "DELETE FROM active_positions WHERE id = ?", (pos_id_to_close,)
-      )
-      conn.commit()
-      conn.close()
-      st.success(
-          f"Position {selected_pos['ticker']} closed and committed to Journal!"
-      )
-      st.rerun()
-
-# ==========================================
-# PAGE 3: TRADE JOURNAL & ANALYTICS
-# ==========================================
-else:
-  st.subheader("📖 Modern Trader Analytics Dashboard")
-
-  conn = sqlite3.connect(DB_FILE)
-  df_journal = pd.read_sql_query("SELECT * FROM trade_journal", conn)
-  df_snapshots = pd.read_sql_query("SELECT * FROM account_snapshots", conn)
-  conn.close()
-
-  with st.expander("📸 Record Balance Snapshot", expanded=False):
-    c1, c2, c3 = st.columns(3)
-    snap_cash = c1.number_input(
-        "Liquid Cash ($)", min_value=0.0, value=5000.0, step=500.0
-    )
-    snap_positions = c2.number_input(
-        "Active Position Value ($)", min_value=0.0, value=5000.0, step=500.0
-    )
-    snap_notes = c3.text_input(
-        "Snapshot Context Note", value="Periodic Balance Check"
-    )
-
-    if st.button("💾 Record Balance Snapshot"):
-      conn = sqlite3.connect(DB_FILE)
-      c = conn.cursor()
-      c.execute(
-          """
-                INSERT INTO account_snapshots (snapshot_date, cash_balance, position_value, total_account_value, notes)
-                VALUES (?, ?, ?, ?, ?)
-            """,
-          (
-              str(datetime.today().date()),
-              snap_cash,
-              snap_positions,
-              snap_cash + snap_positions,
-              snap_notes,
-          ),
-      )
-      conn.commit()
-      conn.close()
-      st.success("Snapshot saved!")
-      st.rerun()
-
-  total_trades = len(df_journal)
-  wins = (
-      len(df_journal[df_journal["realized_pnl"] > 0])
-      if not df_journal.empty
-      else 0
-  )
-  losses = (
-      len(df_journal[df_journal["realized_pnl"] < 0])
-      if not df_journal.empty
-      else 0
-  )
-  win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0.0
-
-  avg_win = (
-      df_journal[df_journal["realized_pnl"] > 0]["realized_pnl"].mean()
-      if wins > 0
-      else 0.0
-  )
-  avg_loss = (
-      abs(df_journal[df_journal["realized_pnl"] < 0]["realized_pnl"].mean())
-      if losses > 0
-      else 1.0
-  )
-  win_loss_ratio = round(avg_win / avg_loss, 2) if avg_loss > 0 else avg_win
-
-  net_pnl = df_journal["realized_pnl"].sum() if not df_journal.empty else 0.0
-
-  dash_col1, dash_col2, dash_col3, dash_col4 = st.columns([1, 1.2, 1, 1.2])
-
-  with dash_col1:
-    st.markdown("#### **Winstreak & Volume**")
-    st.metric(
-        "Total Trades Logged",
-        f"{total_trades} Trades",
-        f"{wins} Wins / {losses} Losses",
-    )
-    st.metric(
-        "Avg Execution Slippage",
-        f"${df_journal['slippage'].mean():.2f}"
-        if not df_journal.empty
-        else "$0.00",
-    )
-
-  with dash_col2:
-    st.markdown("#### **Winrate Gauge**")
-    fig_gauge = go.Figure(
-        go.Indicator(
-            mode="gauge+number",
-            value=win_rate,
-            number={"suffix": "%"},
-            gauge={
-                "axis": {"range": [0, 100]},
-                "bar": {"color": "#10B981"},
-                "steps": [
-                    {"range": [0, 50], "color": "#EF4444"},
-                    {"range": [50, 100], "color": "#1E293B"},
-                ],
-            },
-        )
-    )
-    fig_gauge.update_layout(
-        height=180,
-        margin=dict(l=10, r=10, t=10, b=10),
-        template="plotly_dark",
-    )
-    st.plotly_chart(fig_gauge, use_container_width=True)
-
-  with dash_col3:
-    st.markdown("#### **Win / Loss Ratio**")
-    st.metric("Avg Win / Avg Loss Ratio", f"{win_loss_ratio:.2f}")
-    st.metric("Net Realized P&L", f"${net_pnl:,.2f}")
-
-  with dash_col4:
-    st.markdown("#### **Strategy Radar Score**")
-    categories = ["Win Rate", "Profit Factor", "Avg Days", "Return %"]
-    fig_radar = go.Figure(
-        go.Scatterpolar(
-            r=[
-                win_rate,
-                min(win_loss_ratio * 20, 100),
-                50,
-                min(max(net_pnl / 100, 0), 100),
-            ],
-            theta=categories,
-            fill="toself",
-            line_color="#3B82F6",
-        )
-    )
-    fig_radar.update_layout(
-        polar=dict(radialaxis=dict(visible=False, range=[0, 100])),
-        showlegend=False,
-        height=180,
-        margin=dict(l=20, r=20, t=10, b=10),
-        template="plotly_dark",
-    )
-    st.plotly_chart(fig_radar, use_container_width=True)
-
-  st.write("---")
-
-  mid_col1, mid_col2 = st.columns([1, 1.2])
-
-  with mid_col1:
-    st.markdown("### 📅 **Monthly Trading Calendar Heatmap**")
-    if not df_journal.empty:
-      df_journal["exit_dt"] = pd.to_datetime(df_journal["exit_date"])
-      df_journal["Day"] = df_journal["exit_dt"].dt.day
-      calendar_data = (
-          df_journal.groupby("Day")["realized_pnl"].sum().reset_index()
-      )
-
-      fig_cal = px.bar(
-          calendar_data,
-          x="Day",
-          y="realized_pnl",
-          title="PnL Distribution by Day of Month ($)",
-          color="realized_pnl",
-          color_continuous_scale=["#EF4444", "#10B981"],
-      )
-      fig_cal.update_layout(template="plotly_dark", height=320)
-      st.plotly_chart(fig_cal, use_container_width=True)
-    else:
-      st.info("Log trades in the journal to view trading calendar heatmap.")
-
-  with mid_col2:
-    st.markdown("### 📈 **Total Portfolio Balance & Liquidity**")
-    if not df_snapshots.empty:
-      df_snapshots["snapshot_date_dt"] = pd.to_datetime(
-          df_snapshots["snapshot_date"]
-      )
-      df_snaps_sorted = df_snapshots.sort_values("snapshot_date_dt")
-
-      fig_area = go.Figure()
-      fig_area.add_trace(
-          go.Scatter(
-              x=df_snaps_sorted["snapshot_date_dt"],
-              y=df_snaps_sorted["cash_balance"],
-              name="Liquid Cash ($)",
-              mode="lines",
-              stackgroup="one",
-              line=dict(width=0.5, color="#3B82F6"),
-              fillcolor="rgba(59, 130, 246, 0.4)",
-          )
-      )
-      fig_area.add_trace(
-          go.Scatter(
-              x=df_snaps_sorted["snapshot_date_dt"],
-              y=df_snaps_sorted["position_value"],
-              name="Active Positions ($)",
-              mode="lines",
-              stackgroup="one",
-              line=dict(width=0.5, color="#F59E0B"),
-              fillcolor="rgba(245, 158, 11, 0.4)",
-          )
-      )
-      fig_area.add_trace(
-          go.Scatter(
-              x=df_snaps_sorted["snapshot_date_dt"],
-              y=df_snaps_sorted["total_account_value"],
-              name="Total Balance ($)",
-              mode="lines+markers",
-              line=dict(color="#10B981", width=3),
-          )
-      )
-      fig_area.update_layout(
-          template="plotly_dark",
-          height=320,
-          margin=dict(l=10, r=10, t=10, b=10),
-      )
-      st.plotly_chart(fig_area, use_container_width=True)
-    else:
-      st.info("Log balance snapshots to render portfolio area chart.")
-
-  st.write("---")
-  st.markdown("### 📜 **Historical Trade Journal Records**")
-  st.dataframe(df_journal, use_container_width=True)
+    st.error("No valid matrix node data found for selected tickers.")
