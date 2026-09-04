@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 import yfinance as yf
 
@@ -14,7 +16,7 @@ st.set_page_config(
 
 st.title("⚡ Quantitative Swing & Momentum Scanner")
 st.caption(
-    "Multi-Universe Technical Scanner & Volatility Sizing Engine | Private Build"
+    "Multi-Universe Technical Scanner, Position Sizer & Plotly Visualizer"
 )
 
 # ==========================================
@@ -151,7 +153,18 @@ DIVIDEND_ARISTOCRATS = [
 # ==========================================
 # SIDEBAR CONTROLS
 # ==========================================
-st.sidebar.header("🕹️ Scanner Settings")
+st.sidebar.header("🕹️ Global Parameters")
+
+account_capital = st.sidebar.number_input(
+    "Total Portfolio Capital ($)", value=25000, step=1000
+)
+max_risk_pct = (
+    st.sidebar.slider("Max Account Risk Per Trade (%)", 0.5, 5.0, 1.0, 0.25)
+    / 100.0
+)
+
+st.sidebar.markdown("---")
+st.sidebar.header("🔍 Scanner Settings")
 
 universe_choice = st.sidebar.selectbox(
     "Select Ticker Universe",
@@ -186,16 +199,6 @@ scan_strategy = st.sidebar.selectbox(
     ],
 )
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Risk & Filter Parameters")
-
-account_capital = st.sidebar.number_input(
-    "Total Portfolio Capital ($)", value=25000, step=1000
-)
-max_risk_pct = (
-    st.sidebar.slider("Max Account Risk Per Trade (%)", 0.5, 5.0, 1.0, 0.25)
-    / 100.0
-)
 risk_multiplier = st.sidebar.slider(
     "ATR Risk Multiplier (Stop Distance)", 1.0, 4.0, 2.0, 0.5
 )
@@ -221,10 +224,10 @@ else:
   exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
 
 target_1_multiplier = st.sidebar.number_input(
-    "Target 1 R-Multiple (e.g. 1.5 R)", value=1.5, step=0.5
+    "Target 1 R-Multiple", value=1.5, step=0.5
 )
 target_2_multiplier = st.sidebar.number_input(
-    "Target 2 R-Multiple (e.g. 3.0 R)", value=3.0, step=0.5
+    "Target 2 R-Multiple", value=3.0, step=0.5
 )
 
 max_price_filter = (
@@ -232,11 +235,11 @@ max_price_filter = (
     if scan_strategy == "Squeeze / Penny Stock Multiplier"
     else st.sidebar.number_input("Max Asset Price Filter ($)", value=2000.0)
 )
-atr_period = st.sidebar.number_input("ATR Calculation Period", value=14)
+atr_period = st.sidebar.number_input("ATR Period", value=14)
 
 
 # ==========================================
-# HELPER MATHEMATICAL FUNCTIONS
+# MATH & TECHNICAL FUNCTIONS
 # ==========================================
 def calculate_hma(series, period):
   wma_half = (
@@ -283,46 +286,54 @@ def calculate_mhls_and_volatility(df):
   return round(mhls, 4), raw_weight, score_weight_pct, ann_vol
 
 
+def get_df_with_indicators(ticker_symbol):
+  df = yf.Ticker(ticker_symbol).history(period="1y", auto_adjust=False)
+  if df.empty or len(df) < 50:
+    return None
+
+  df["SMA_50"] = df["Close"].rolling(window=min(50, len(df))).mean()
+  df["SMA_200"] = (
+      df["Close"].rolling(window=200).mean()
+      if len(df) >= 200
+      else df["SMA_50"]
+  )
+  df["HMA_Open"] = calculate_hma(df["Open"], 20)
+  df["HMA_Close"] = calculate_hma(df["Close"], 20)
+  df["HMA_High"] = calculate_hma(df["High"], 20)
+  df["HMA_Low"] = calculate_hma(df["Low"], 20)
+  df["EMA_9"] = df["Close"].ewm(span=9, adjust=False).mean()
+  df["EMA_21"] = df["Close"].ewm(span=21, adjust=False).mean()
+
+  delta = df["Close"].diff()
+  gain = (delta.where(delta > 0, 0)).fillna(0)
+  loss = (-delta.where(delta < 0, 0)).fillna(0)
+  rs = gain.rolling(14).mean() / (loss.rolling(14).mean() + 1e-10)
+  df["RSI"] = 100 - (100 / (1 + rs))
+
+  df["Vol_Avg"] = df["Volume"].rolling(window=10).mean()
+  df["Relative_Volume"] = df["Volume"] / (df["Vol_Avg"] + 1e-10)
+
+  high_low = df["High"] - df["Low"]
+  high_close = np.abs(df["High"] - df["Close"].shift())
+  low_close = np.abs(df["Low"] - df["Close"].shift())
+  df["ATR"] = (
+      pd.concat([high_low, high_close, low_close], axis=1)
+      .max(axis=1)
+      .rolling(int(atr_period))
+      .mean()
+  )
+
+  return df
+
+
 # ==========================================
 # SCANNER ENGINE
 # ==========================================
 def scan_ticker(ticker_symbol):
   try:
-    df = yf.Ticker(ticker_symbol).history(period="1y", auto_adjust=False)
-    if df.empty or len(df) < 50:
+    df = get_df_with_indicators(ticker_symbol)
+    if df is None:
       return None
-
-    df["SMA_50"] = df["Close"].rolling(window=min(50, len(df))).mean()
-    df["SMA_200"] = (
-        df["Close"].rolling(window=200).mean()
-        if len(df) >= 200
-        else df["SMA_50"]
-    )
-    df["HMA_Open"] = calculate_hma(df["Open"], 20)
-    df["HMA_Close"] = calculate_hma(df["Close"], 20)
-    df["HMA_High"] = calculate_hma(df["High"], 20)
-    df["HMA_Low"] = calculate_hma(df["Low"], 20)
-    df["EMA_9"] = df["Close"].ewm(span=9, adjust=False).mean()
-    df["EMA_21"] = df["Close"].ewm(span=21, adjust=False).mean()
-
-    delta = df["Close"].diff()
-    gain = (delta.where(delta > 0, 0)).fillna(0)
-    loss = (-delta.where(delta < 0, 0)).fillna(0)
-    rs = gain.rolling(14).mean() / (loss.rolling(14).mean() + 1e-10)
-    df["RSI"] = 100 - (100 / (1 + rs))
-
-    df["Vol_Avg"] = df["Volume"].rolling(window=10).mean()
-    df["Relative_Volume"] = df["Volume"] / (df["Vol_Avg"] + 1e-10)
-
-    high_low = df["High"] - df["Low"]
-    high_close = np.abs(df["High"] - df["Close"].shift())
-    low_close = np.abs(df["Low"] - df["Close"].shift())
-    df["ATR"] = (
-        pd.concat([high_low, high_close, low_close], axis=1)
-        .max(axis=1)
-        .rolling(int(atr_period))
-        .mean()
-    )
 
     latest, prev, prev_2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
     price = latest["Close"]
@@ -460,7 +471,6 @@ def scan_ticker(ticker_symbol):
             price - (risk_amount * target_1_multiplier), 2
         ), round(price - (risk_amount * target_2_multiplier), 2)
 
-    # Position Sizing Calculation
     dollar_risk = account_capital * max_risk_pct
     risk_per_share_calc = max(price - stop, 0.01) if price > stop else 0.01
     suggested_shares = int(dollar_risk / risk_per_share_calc)
@@ -489,67 +499,261 @@ def scan_ticker(ticker_symbol):
 
 
 # ==========================================
-# MAIN INTERFACE & SCAN RUNNER
+# MAIN APPLICATION INTERFACE (TABS)
 # ==========================================
-col1, col2 = st.columns([3, 1])
-with col1:
-  st.subheader(f"Scanning Universe: {universe_choice}")
-  st.write(f"**Total Tickers in Scope:** {len(selected_tickers)}")
-with col2:
-  run_scan = st.button("🚀 Execute Market Scan", use_container_width=True)
+tab_scanner, tab_calculator, tab_charts = st.tabs(
+    ["📡 Market Scanner", "🧮 Position Sizer Calculator", "📈 Interactive Charting"]
+)
 
-if run_scan:
-  progress_bar = st.progress(0)
-  status_text = st.empty()
-  results = []
+# ------------------------------------------
+# TAB 1: MARKET SCANNER
+# ------------------------------------------
+with tab_scanner:
+  col1, col2 = st.columns([3, 1])
+  with col1:
+    st.subheader(f"Scanning Universe: {universe_choice}")
+    st.write(f"**Total Tickers in Scope:** {len(selected_tickers)}")
+  with col2:
+    run_scan = st.button("🚀 Execute Market Scan", use_container_width=True)
 
-  for idx, ticker in enumerate(selected_tickers):
-    status_text.text(
-        f"Scanning {ticker} ({idx+1}/{len(selected_tickers)})..."
-    )
-    res = scan_ticker(ticker)
-    if res:
-      results.append(res)
-    progress_bar.progress((idx + 1) / len(selected_tickers))
+  if run_scan:
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    results = []
 
-  status_text.empty()
-  progress_bar.empty()
-
-  if results:
-    results_df = pd.DataFrame(results)
-
-    # Filter controls
-    st.markdown("---")
-    filter_col1, filter_col2 = st.columns(2)
-    with filter_col1:
-      signal_filter = st.multiselect(
-          "Filter by Signal",
-          options=list(results_df["Signal"].unique()),
-          default=list(results_df["Signal"].unique()),
+    for idx, ticker in enumerate(selected_tickers):
+      status_text.text(
+          f"Scanning {ticker} ({idx+1}/{len(selected_tickers)})..."
       )
-    with filter_col2:
-      min_mhls = st.slider(
-          "Minimum MHLS Momentum Score",
-          float(results_df["MHLS Score"].min()),
-          float(results_df["MHLS Score"].max()),
-          float(results_df["MHLS Score"].min()),
+      res = scan_ticker(ticker)
+      if res:
+        results.append(res)
+      progress_bar.progress((idx + 1) / len(selected_tickers))
+
+    status_text.empty()
+    progress_bar.empty()
+
+    if results:
+      results_df = pd.DataFrame(results)
+
+      st.markdown("---")
+      filter_col1, filter_col2 = st.columns(2)
+      with filter_col1:
+        signal_filter = st.multiselect(
+            "Filter by Signal",
+            options=list(results_df["Signal"].unique()),
+            default=list(results_df["Signal"].unique()),
+        )
+      with filter_col2:
+        min_mhls = st.slider(
+            "Minimum MHLS Momentum Score",
+            float(results_df["MHLS Score"].min()),
+            float(results_df["MHLS Score"].max()),
+            float(results_df["MHLS Score"].min()),
+        )
+
+      filtered_df = results_df[
+          (results_df["Signal"].isin(signal_filter))
+          & (results_df["MHLS Score"] >= min_mhls)
+      ]
+
+      st.subheader(f"Scan Results ({len(filtered_df)} Hits)")
+      st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
+      csv_data = filtered_df.to_csv(index=False).encode("utf-8")
+      st.download_button(
+          label="📥 Download Scan Results (CSV)",
+          data=csv_data,
+          file_name="market_scan_results.csv",
+          mime="text/csv",
       )
+    else:
+      st.error("No valid matrix node data found for selected tickers.")
 
-    filtered_df = results_df[
-        (results_df["Signal"].isin(signal_filter))
-        & (results_df["MHLS Score"] >= min_mhls)
-    ]
+# ------------------------------------------
+# TAB 2: POSITION SIZER CALCULATOR
+# ------------------------------------------
+with tab_calculator:
+  st.subheader("🎯 Standalone Risk & Position Sizing Calculator")
+  st.caption(
+      "Calculate exact share count and portfolio allocation based on entry,"
+      " stop-loss, and target levels."
+  )
 
-    st.subheader(f"Scan Results ({len(filtered_df)} Hits)")
-    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+  calc_col1, calc_col2 = st.columns(2)
 
-    # CSV Download
-    csv_data = filtered_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="📥 Download Scan Results (CSV)",
-        data=csv_data,
-        file_name="market_scan_results.csv",
-        mime="text/csv",
+  with calc_col1:
+    calc_capital = st.number_input(
+        "Account Capital ($)",
+        value=float(account_capital),
+        step=1000.0,
+        key="calc_cap",
     )
+    calc_risk_pct = (
+        st.number_input(
+            "Risk Tolerance (%)",
+            value=float(max_risk_pct * 100),
+            step=0.25,
+            key="calc_risk",
+        )
+        / 100.0
+    )
+    calc_entry = st.number_input(
+        "Entry Price ($)", value=100.00, step=0.50, key="calc_entry"
+    )
+    calc_stop = st.number_input(
+        "Stop Loss Price ($)", value=95.00, step=0.50, key="calc_stop"
+    )
+
+  with calc_col2:
+    calc_t1 = st.number_input(
+        "Target 1 Price ($)", value=107.50, step=0.50, key="calc_t1"
+    )
+    calc_t2 = st.number_input(
+        "Target 2 Price ($)", value=115.00, step=0.50, key="calc_t2"
+    )
+
+  dollar_risk = calc_capital * calc_risk_pct
+  risk_per_share = calc_entry - calc_stop
+
+  if risk_per_share <= 0:
+    st.error("Entry price must be greater than Stop Loss price for long setups.")
   else:
-    st.error("No valid matrix node data found for selected tickers.")
+    shares = int(dollar_risk / risk_per_share)
+    total_cost = shares * calc_entry
+    pct_account = (total_cost / calc_capital) * 100
+
+    r1_multiple = (calc_t1 - calc_entry) / risk_per_share
+    r2_multiple = (calc_t2 - calc_entry) / risk_per_share
+
+    t1_profit = shares * 0.5 * (calc_t1 - calc_entry)
+    t2_profit = shares * 0.5 * (calc_t2 - calc_entry)
+    total_potential_profit = t1_profit + t2_profit
+
+    st.markdown("---")
+    res_col1, res_col2, res_col3, res_col4 = st.columns(4)
+    res_col1.metric("Max Dollar Risk", f"${dollar_risk:,.2f}")
+    res_col2.metric("Recommended Shares", f"{shares:,}")
+    res_col3.metric("Total Position Value", f"${total_cost:,.2f}")
+    res_col4.metric("Portfolio Allocation", f"{pct_account:.1f}%")
+
+    st.markdown("### 📊 Trade Metrics & Scale-Out Schedule")
+    m_col1, m_col2, m_col3 = st.columns(3)
+    m_col1.metric("Risk Per Share", f"${risk_per_share:.2f}")
+    m_col2.metric("Target 1 R-Reward", f"{r1_multiple:.2f} R")
+    m_col3.metric("Target 2 R-Reward", f"{r2_multiple:.2f} R")
+
+    st.info(
+        f"**Scale-Out Profit Strategy:** Selling 50% at T1 (${calc_t1:.2f}) yields"
+        f" **${t1_profit:,.2f}**. Selling remaining 50% at T2 (${calc_t2:.2f})"
+        f" yields **${t2_profit:,.2f}**. Total Expected Gain:"
+        f" **${total_potential_profit:,.2f}**."
+    )
+
+# ------------------------------------------
+# TAB 3: INTERACTIVE CHARTING
+# ------------------------------------------
+with tab_charts:
+  st.subheader("📈 Interactive Multi-Indicator Plotter")
+
+  chart_ticker = (
+      st.text_input("Enter Ticker Symbol to Plot", "NVDA").strip().upper()
+  )
+
+  if chart_ticker:
+    df_chart = get_df_with_indicators(chart_ticker)
+
+    if df_chart is not None and not df_chart.empty:
+      # Plotly Candlestick + Indicators Subplot
+      fig = make_subplots(
+          rows=2,
+          cols=1,
+          shared_xaxes=True,
+          vertical_spacing=0.03,
+          row_heights=[0.75, 0.25],
+      )
+
+      # Candlesticks
+      fig.add_trace(
+          go.Candlestick(
+              x=df_chart.index,
+              open=df_chart["Open"],
+              high=df_chart["High"],
+              low=df_chart["Low"],
+              close=df_chart["Close"],
+              name="OHLC",
+          ),
+          row=1,
+          col=1,
+      )
+
+      # 4-HMA Channel Traces
+      fig.add_trace(
+          go.Scatter(
+              x=df_chart.index,
+              y=df_chart["HMA_Close"],
+              line=dict(color="white", width=1.5),
+              name="HMA Close",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_trace(
+          go.Scatter(
+              x=df_chart.index,
+              y=df_chart["HMA_Open"],
+              line=dict(color="orange", width=1.5),
+              name="HMA Open",
+          ),
+          row=1,
+          col=1,
+      )
+
+      # EMAs
+      fig.add_trace(
+          go.Scatter(
+              x=df_chart.index,
+              y=df_chart["EMA_9"],
+              line=dict(color="blue", width=1),
+              name="9 EMA",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_trace(
+          go.Scatter(
+              x=df_chart.index,
+              y=df_chart["EMA_21"],
+              line=dict(color="purple", width=1),
+              name="21 EMA",
+          ),
+          row=1,
+          col=1,
+      )
+
+      # Volume Subplot
+      colors = [
+          "green" if c >= o else "red"
+          for c, o in zip(df_chart["Close"], df_chart["Open"])
+      ]
+      fig.add_trace(
+          go.Bar(
+              x=df_chart.index,
+              y=df_chart["Volume"],
+              marker_color=colors,
+              name="Volume",
+          ),
+          row=2,
+          col=1,
+      )
+
+      fig.update_layout(
+          title=f"{chart_ticker} Technical Chart (4-HMA, EMAs & Volume)",
+          template="plotly_dark",
+          xaxis_rangeslider_visible=False,
+          height=650,
+      )
+
+      st.plotly_chart(fig, use_container_width=True)
+    else:
+      st.warning(f"Could not load market data for {chart_ticker}.")
