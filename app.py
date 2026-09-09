@@ -301,7 +301,108 @@ if app_mode == "⚡ AlphaScan Engine":
       "VZ",
       "WMT",
   ]
-  TOP_ETFS = ["BITO", "TSLL", "SNXX", "TQQQ", "NVD", "MSTU", "SQQQ", "SOXL", "MUU", "SOXS", "DRAM", "SPY", "SPDN", "QQQ", "IBIT", "PLTD", "TSLG", "XLF", "XLE", "DAMD", "HYG", "ETHA", "EEM", "LQD", "FXI", "KORU", "TLT", "IWM", "KWEB", "TSDD", "EWZ", "TZA", "EWY", "NOWL", "GDX", "SCHD", "BTCZ", "QID", "CONL", "SGOV", "XLU", "NVDL", "SLV", "MSTZ", "IONZ", "RWM", "IGV", "RKLZ", "MUD", "KRE", "AMZD", "RGTZ", "OKLL", "IEMG", "EFA", "SCHX", "SPXS", "SPYM", "XLK", "XLP", "SMH", "XLB", "AVS", "VEA", "USHY", "MULL", "XLV", "SNDQ", "SOXX", "BIL", "SCHG", "RSP", "IEFA", "SPXU", "VXX", "AAPD", "SCO", "LABD", "BMNU", "XBI", "SH", "NVDX", "PSLV", "SCHB", "VCIT", "BITX", "PSQ", "VWO", "BKLN", "AGG", "GOVT", "TSLQ", "MSFU", "XLY", "UVXY", "BND", "VOO", "IVV", "SCHF", "UNG"]
+  TOP_ETFS = [
+      "BITO",
+      "TSLL",
+      "SNXX",
+      "TQQQ",
+      "NVD",
+      "MSTU",
+      "SQQQ",
+      "SOXL",
+      "MUU",
+      "SOXS",
+      "DRAM",
+      "SPY",
+      "SPDN",
+      "QQQ",
+      "IBIT",
+      "PLTD",
+      "TSLG",
+      "XLF",
+      "XLE",
+      "DAMD",
+      "HYG",
+      "ETHA",
+      "EEM",
+      "LQD",
+      "FXI",
+      "KORU",
+      "TLT",
+      "IWM",
+      "KWEB",
+      "TSDD",
+      "EWZ",
+      "TZA",
+      "EWY",
+      "NOWL",
+      "GDX",
+      "SCHD",
+      "BTCZ",
+      "QID",
+      "CONL",
+      "SGOV",
+      "XLU",
+      "NVDL",
+      "SLV",
+      "MSTZ",
+      "IONZ",
+      "RWM",
+      "IGV",
+      "RKLZ",
+      "MUD",
+      "KRE",
+      "AMZD",
+      "RGTZ",
+      "OKLL",
+      "IEMG",
+      "EFA",
+      "SCHX",
+      "SPXS",
+      "SPYM",
+      "XLK",
+      "XLP",
+      "SMH",
+      "XLB",
+      "AVS",
+      "VEA",
+      "USHY",
+      "MULL",
+      "XLV",
+      "SNDQ",
+      "SOXX",
+      "BIL",
+      "SCHG",
+      "RSP",
+      "IEFA",
+      "SPXU",
+      "VXX",
+      "AAPD",
+      "SCO",
+      "LABD",
+      "BMNU",
+      "XBI",
+      "SH",
+      "NVDX",
+      "PSLV",
+      "SCHB",
+      "VCIT",
+      "BITX",
+      "PSQ",
+      "VWO",
+      "BKLN",
+      "AGG",
+      "GOVT",
+      "TSLQ",
+      "MSFU",
+      "XLY",
+      "UVXY",
+      "BND",
+      "VOO",
+      "IVV",
+      "SCHF",
+      "UNG",
+  ]
 
   DEFAULT_SPECULATIVE = [
       "SOUN",
@@ -389,6 +490,14 @@ if app_mode == "⚡ AlphaScan Engine":
   atr_period = st.sidebar.slider("ATR Lookback", 5, 30, 14, key="atr_period_key")
 
   if scan_strategy == "Universal 4-HMA Trend-Following":
+    hma_trigger_mode = st.sidebar.radio(
+        "Hull Cross Confirmation Logic:",
+        [
+            "Execute on Cross Bar Close",
+            "Require Next-Day Confirmation Close",
+        ],
+        key="hma_trigger_mode_key",
+    )
     hma_stop_mode = st.sidebar.selectbox(
         "HMA Stop-Loss Mode:",
         [
@@ -507,13 +616,18 @@ if app_mode == "⚡ AlphaScan Engine":
 
       if scan_strategy == "Universal 4-HMA Trend-Following":
         above_smas = (price > latest["SMA_50"]) and (price > latest["SMA_200"])
-        recent_cross = (
-            (prev["HMA_Close"] <= prev["HMA_Open"])
-            and (latest["HMA_Close"] > latest["HMA_Open"])
-        ) or (
-            (prev_2["HMA_Close"] <= prev_2["HMA_Open"])
-            and (prev["HMA_Close"] > prev["HMA_Open"])
-        )
+
+        if hma_trigger_mode == "Execute on Cross Bar Close":
+          recent_cross = (prev["HMA_Close"] <= prev["HMA_Open"]) and (
+              latest["HMA_Close"] > latest["HMA_Open"]
+          )
+        else:
+          recent_cross = (
+              (prev_2["HMA_Close"] <= prev_2["HMA_Open"])
+              and (prev["HMA_Close"] > prev["HMA_Open"])
+              and (latest["Close"] > latest["HMA_Close"])
+          )
+
         hma_close_sloping_up = latest["HMA_Close"] > prev["HMA_Close"]
         hma_open_sloping_up = latest["HMA_Open"] > prev["HMA_Open"]
         closed_above_white = price > latest["HMA_Close"]
@@ -686,7 +800,7 @@ if app_mode == "⚡ AlphaScan Engine":
     )
     st.write("---")
 
-    st.subheader("🧮 Advanced Position Sizing Calculator")
+    st.subheader("🧮 Advanced Position Sizing & Execution Trade Card")
 
     calc_col1, calc_col2 = st.columns([1, 1.2])
 
@@ -750,6 +864,14 @@ if app_mode == "⚡ AlphaScan Engine":
             )
             / 100.0
         )
+
+        st.markdown("#### **Target Offload Allocations**")
+        t1_offload_pct = (
+            st.slider("T1 Offload %", 0, 100, 50, 5, key="t1_offload_key") / 100.0
+        )
+        t2_offload_pct = (
+            st.slider("T2 Offload %", 0, 100, 50, 5, key="t2_offload_key") / 100.0
+        )
       else:
         calc_ticker = None
 
@@ -769,23 +891,6 @@ if app_mode == "⚡ AlphaScan Engine":
             )
           else:
             final_shares = 0
-
-          st.markdown("### **Volumetric Position Model Output**")
-          st.write(f"**MHLS:** `{ticker_data['MHLS']}`")
-          st.write(f"**Score Weight:** `{ticker_data['Score Weight']}`")
-          st.write(
-              f"**Annualized Volatility:** `{ticker_data['Ann Volatility %']}%`"
-          )
-          st.metric("Recommended Share Count", f"{final_shares:,} Shares")
-          st.metric(
-              "Total Capital Allocation",
-              f"${final_shares * budget_price_val:,.2f}",
-              delta=(
-                  f"{(final_shares * budget_price_val / acc_balance)*100:.1f}%"
-                  " of Portfolio"
-              ),
-          )
-
         else:
           risk_per_share = max(budget_price_val - stop_val, 0.01)
           dollar_risk_allowed = acc_balance * target_risk_pct
@@ -793,9 +898,84 @@ if app_mode == "⚡ AlphaScan Engine":
           shares_by_cash = int(avail_cash / budget_price_val)
           final_shares = max(0, min(shares_by_risk, shares_by_cash))
 
-          st.markdown("### **Fixed Risk (ATR) Model Output**")
-          st.metric("Recommended Share Count", f"{final_shares:,} Shares")
-          st.metric(
-              "Budget Capital Required",
-              f"${final_shares * budget_price_val:,.2f}",
-          )
+        # Share Offload Calculations
+        t1_shares = int(final_shares * t1_offload_pct)
+        t2_shares = int(final_shares * t2_offload_pct)
+
+        cap_alloc = final_shares * budget_price_val
+        port_weight = (cap_alloc / acc_balance) * 100 if acc_balance > 0 else 0
+
+        # Formatted Target Strings
+        t1_str = (
+            f"${ticker_data['Target 1']:.2f}"
+            if isinstance(ticker_data["Target 1"], (int, float))
+            else str(ticker_data["Target 1"])
+        )
+        t2_str = (
+            f"${ticker_data['Target 2']:.2f}"
+            if isinstance(ticker_data["Target 2"], (int, float))
+            else str(ticker_data["Target 2"])
+        )
+
+        # STYLED TRADE CARD MATCHING DRAWN LAYOUT
+        trade_card_html = f"""
+        <div style="background-color: {metric_bg}; border: 2px solid {border_color}; border-radius: 12px; padding: 24px; font-family: {font_family}; color: {text_main}; margin-top: 10px;">
+            
+            <!-- 1. TICKER HEADER -->
+            <div style="text-align: center; border-bottom: 2px solid {border_color}; padding-bottom: 12px; margin-bottom: 16px;">
+                <h1 style="margin: 0; font-size: 38px; font-weight: 800; letter-spacing: 2px;">{calc_ticker}</h1>
+                <span style="font-size: 13px; font-weight: bold; background: {border_color}; color: #000; padding: 3px 10px; border-radius: 4px; display: inline-block; margin-top: 6px;">{ticker_data['Signal']}</span>
+            </div>
+
+            <!-- 2. SHARES (FULL ROW) -->
+            <div style="background: rgba(255,255,255,0.05); border-bottom: 2px solid {border_color}; padding: 14px; text-align: center; margin-bottom: 16px; border-radius: 8px;">
+                <div style="font-size: 13px; opacity: 0.75; letter-spacing: 1px; font-weight: bold;">TOTAL POSITION SHARES</div>
+                <div style="font-size: 32px; font-weight: 800; color: #F8FAFC;">{final_shares:,}</div>
+            </div>
+
+            <!-- 3. BUY / STOP / T1 / T2 (INLINE ROW) -->
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; border-bottom: 2px solid {border_color}; padding-bottom: 16px; margin-bottom: 16px; text-align: center;">
+                <div style="background: rgba(16, 185, 129, 0.1); padding: 10px; border-radius: 6px; border: 1px solid #10B981;">
+                    <div style="font-size: 11px; opacity: 0.8; font-weight: bold; color: #10B981;">BUY</div>
+                    <div style="font-size: 18px; font-weight: bold;">${budget_price_val:.2f}</div>
+                </div>
+                <div style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 6px; border: 1px solid #EF4444;">
+                    <div style="font-size: 11px; opacity: 0.8; font-weight: bold; color: #EF4444;">STOP</div>
+                    <div style="font-size: 18px; font-weight: bold;">${stop_val:.2f}</div>
+                </div>
+                <div style="background: rgba(59, 130, 246, 0.1); padding: 10px; border-radius: 6px; border: 1px solid #3B82F6;">
+                    <div style="font-size: 11px; opacity: 0.8; font-weight: bold; color: #3B82F6;">T1</div>
+                    <div style="font-size: 18px; font-weight: bold;">{t1_str}</div>
+                </div>
+                <div style="background: rgba(168, 85, 247, 0.1); padding: 10px; border-radius: 6px; border: 1px solid #A855F7;">
+                    <div style="font-size: 11px; opacity: 0.8; font-weight: bold; color: #A855F7;">T2</div>
+                    <div style="font-size: 18px; font-weight: bold;">{t2_str}</div>
+                </div>
+            </div>
+
+            <!-- 4. T1 SHARES / % -->
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px; background: rgba(59, 130, 246, 0.08); padding: 10px 16px; border-radius: 6px; margin-bottom: 10px; border-left: 4px solid #3B82F6;">
+                <div><span style="font-size: 12px; opacity: 0.8;">T1 OFFLOAD SHARES:</span> <b style="font-size: 16px; margin-left: 8px;">{t1_shares:,}</b></div>
+                <div style="text-align: right;"><span style="font-size: 12px; opacity: 0.8;">T1 %:</span> <b style="font-size: 16px; margin-left: 8px;">{int(t1_offload_pct*100)}%</b></div>
+            </div>
+
+            <!-- 5. T2 SHARES / % -->
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px; background: rgba(168, 85, 247, 0.08); padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; border-left: 4px solid #A855F7; border-bottom: 2px solid {border_color}; padding-bottom: 14px;">
+                <div><span style="font-size: 12px; opacity: 0.8;">T2 OFFLOAD SHARES:</span> <b style="font-size: 16px; margin-left: 8px;">{t2_shares:,}</b></div>
+                <div style="text-align: right;"><span style="font-size: 12px; opacity: 0.8;">T2 %:</span> <b style="font-size: 16px; margin-left: 8px;">{int(t2_offload_pct*100)}%</b></div>
+            </div>
+
+            <!-- 6. EXTRA INFO (BOTTOM SECTION) -->
+            <div style="padding-top: 6px;">
+                <div style="font-size: 11px; font-weight: bold; opacity: 0.6; margin-bottom: 8px; letter-spacing: 1px;">EXTRA INFO</div>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px;">
+                    <div><b>MHLS Score:</b> {ticker_data['MHLS']} ({ticker_data['Score Weight']})</div>
+                    <div><b>Capital Alloc:</b> ${cap_alloc:,.2f}</div>
+                    <div><b>Ann Volatility:</b> {ticker_data['Ann Volatility %']}%</div>
+                    <div><b>Portfolio Weight:</b> {port_weight:.1f}%</div>
+                </div>
+            </div>
+
+        </div>
+        """
+        st.html(trade_card_html)
