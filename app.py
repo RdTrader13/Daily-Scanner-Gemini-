@@ -207,7 +207,6 @@ if app_mode == "⚡ AlphaScan Engine":
     ]
     DEFAULT_DIVIDEND = ["NVDY", "CONY", "TSLY", "AMZY", "QDTE", "XDTE", "JEPQ", "SCHD"]
 
-    # INITIALIZE DEFAULT PRICE FILTER TO NONE (DISABLE FILTERING BY DEFAULT)
     max_price_filter = None
 
     if scan_strategy == "Squeeze / Penny Stock Multiplier":
@@ -235,7 +234,7 @@ if app_mode == "⚡ AlphaScan Engine":
                 [t.strip().upper() for t in div_input.split(",") if t.strip()]
             )
         )
-        max_price_filter = None  # No price restriction for Dividend Engine
+        max_price_filter = None
     else:
         st.sidebar.header("📁 Core Matrix Framework")
         source_type = st.sidebar.radio(
@@ -412,7 +411,6 @@ if app_mode == "⚡ AlphaScan Engine":
             latest, prev, prev_2 = df.iloc[-1], df.iloc[-2], df.iloc[-3]
             price = latest["Close"]
             
-            # REMOVED HARD-STOP ON PRICE FILTERS UNLESS EXPLICITLY DEFINED BY STRATEGY
             if max_price_filter is not None and price > max_price_filter:
                 return None
 
@@ -424,15 +422,27 @@ if app_mode == "⚡ AlphaScan Engine":
             risk_amount = risk_multiplier * atr
 
             if scan_strategy == "Channel Yield & Dividend Engine":
-                info = yf_ticker.info
-                trailing_div_rate = info.get("trailingAnnualDividendRate", 0)
+                # ACCURATE YAHOO FINANCE DIVIDEND EXTRACTION
+                trailing_div_rate = 0.0
+                try:
+                    div_history = yf_ticker.dividends
+                    if not div_history.empty:
+                        one_year_ago = datetime.now() - timedelta(days=365)
+                        # Filter last 365 days of dividends
+                        recent_divs = div_history[div_history.index >= pd.Timestamp(one_year_ago).tz_localize(div_history.index.tz)] if div_history.index.tz else div_history[div_history.index >= one_year_ago.strftime("%Y-%m-%d")]
+                        trailing_div_rate = float(recent_divs.sum())
+                except Exception:
+                    pass
 
-                if (not trailing_div_rate) and hasattr(yf_ticker, "dividends") and len(yf_ticker.dividends) > 0:
-                    one_year_ago = datetime.now() - timedelta(days=365)
-                    recent_divs = yf_ticker.dividends[yf_ticker.dividends.index >= one_year_ago.strftime("%Y-%m-%d")]
-                    trailing_div_rate = float(recent_divs.sum()) if len(recent_divs) > 0 else 0.0
+                # Fallback to info metadata if dividend history fails
+                if trailing_div_rate == 0.0:
+                    try:
+                        info = yf_ticker.info
+                        trailing_div_rate = info.get("trailingAnnualDividendRate", 0.0) or info.get("dividendRate", 0.0)
+                    except Exception:
+                        trailing_div_rate = 0.0
 
-                if price > 0 and trailing_div_rate and trailing_div_rate > 0:
+                if price > 0 and trailing_div_rate > 0:
                     custom_value_score = price / (trailing_div_rate * 10)
                 else:
                     custom_value_score = np.nan
@@ -447,16 +457,18 @@ if app_mode == "⚡ AlphaScan Engine":
                 else:
                     channel_range_pct = 50.0
 
-                # Dynamic Configurable HMA Calculation
+                # Dynamic Configurable HMA Calculation & Slope Status
                 hma_custom = calculate_hma(df["Close"], length=hma_lookback_period)
                 current_hma_val = hma_custom.iloc[-1]
                 prev_hma_val = hma_custom.iloc[-2]
-                hma_slope_status = "Positive" if (current_hma_val - prev_hma_val) > 0 else "Negative"
+                
+                is_sloping_up = (current_hma_val - prev_hma_val) > 0
+                hma_slope_indicator = "📈 Sloping UP" if is_sloping_up else "📉 Sloping DOWN"
 
                 # Signal Calculation
-                if mhls >= min_mom_threshold and channel_range_pct <= buy_channel_max and hma_slope_status == "Positive":
+                if mhls >= min_mom_threshold and channel_range_pct <= buy_channel_max and is_sloping_up:
                     signal = "🟢 BUY / ALLOCATE"
-                elif channel_range_pct >= sell_channel_min and hma_slope_status == "Negative":
+                elif channel_range_pct >= sell_channel_min and not is_sloping_up:
                     signal = "🔴 EXIT / TRIM"
                 elif mhls <= -2:
                     signal = "⚠️ STRUCTURAL DOWN"
@@ -478,15 +490,16 @@ if app_mode == "⚡ AlphaScan Engine":
                 return {
                     "Ticker": ticker_symbol,
                     "Last Close Price": round(price, 2),
-                    "Dividend Per Share": round(trailing_div_rate, 2) if trailing_div_rate else 0.0,
+                    "Dividend Per Share": round(trailing_div_rate, 2),
                     "Custom Value Score": round(custom_value_score, 3) if not np.isnan(custom_value_score) else "N/A",
                     "Buy Range": buy_range_str,
                     "Hold Range": hold_range_str,
                     "Sell Range": sell_range_str,
                     "HMA": round(current_hma_val, 2),
+                    "HMA Trend": hma_slope_indicator,
+                    "MHLS": mhls,
                     "Signal": signal,
                     "Price": round(price, 2),
-                    "MHLS": mhls,
                     "Score Weight": f"{int(score_weight_pct)}%",
                     "Score Weight Raw": score_weight_float,
                     "Ann Volatility %": round(ann_vol * 100, 2),
@@ -693,6 +706,8 @@ if app_mode == "⚡ AlphaScan Engine":
                 "Hold Range",
                 "Sell Range",
                 "HMA",
+                "HMA Trend",
+                "MHLS",
                 "Signal",
             ]
         else:
