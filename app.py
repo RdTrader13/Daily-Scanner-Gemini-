@@ -502,7 +502,7 @@ if app_mode == "⚡ AlphaScan Engine":
 
   st.sidebar.write("---")
   st.sidebar.header("⚙️ Risk Parameters")
-  
+
   if scan_strategy == "Channel Yield & Dividend Engine":
     hma_lookback_period = st.sidebar.slider(
         "HMA Lookback Period", 5, 50, 20, key="hma_div_period_key"
@@ -639,7 +639,7 @@ if app_mode == "⚡ AlphaScan Engine":
       if scan_strategy == "Channel Yield & Dividend Engine":
         info = yf_ticker.info
         trailing_div_rate = info.get("trailingAnnualDividendRate", 0)
-        
+
         if not trailing_div_rate and hasattr(yf_ticker, "dividends") and len(yf_ticker.dividends) > 0:
           one_year_ago = datetime.now() - timedelta(days=365)
           recent_divs = yf_ticker.dividends[yf_ticker.dividends.index >= one_year_ago.strftime("%Y-%m-%d")]
@@ -660,13 +660,13 @@ if app_mode == "⚡ AlphaScan Engine":
         else:
           channel_range_pct = 50.0
 
-        # Custom HMA Slope Calculation
+        # Dynamic Configurable HMA Calculation
         hma_custom = calculate_hma(df["Close"], period=hma_lookback_period)
         current_hma_val = hma_custom.iloc[-1]
         prev_hma_val = hma_custom.iloc[-2]
         hma_slope_status = "Positive" if (current_hma_val - prev_hma_val) > 0 else "Negative"
 
-        # Signal Logic
+        # Signal Calculation (Determines output state without filtering rows out)
         if mhls >= min_mom_threshold and channel_range_pct <= buy_channel_max and hma_slope_status == "Positive":
           signal = "🟢 BUY / ALLOCATE"
         elif channel_range_pct >= sell_channel_min and hma_slope_status == "Negative":
@@ -895,7 +895,7 @@ if app_mode == "⚡ AlphaScan Engine":
     sc_col5.metric("⚪ Neutral / Cash", f"{neutral_hits} Hits")
 
     st.write("---")
-    
+
     if scan_strategy == "Channel Yield & Dividend Engine":
       display_columns = [
           "Ticker",
@@ -923,7 +923,7 @@ if app_mode == "⚡ AlphaScan Engine":
           "200 SMA",
           "RSI",
       ]
-      
+
     st.dataframe(
         scan_df[display_columns], use_container_width=True, height=280
     )
