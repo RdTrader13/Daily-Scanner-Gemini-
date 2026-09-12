@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -166,6 +166,7 @@ if app_mode == "⚡ AlphaScan Engine":
           "Universal 4-HMA Trend-Following",
           "Large Cap Core Matrix",
           "Squeeze / Penny Stock Multiplier",
+          "Channel Yield & Dividend Engine",
       ],
       key="strategy_choice",
   )
@@ -422,6 +423,7 @@ if app_mode == "⚡ AlphaScan Engine":
       "MQ",
       "NXDR",
   ]
+  DEFAULT_DIVIDEND = ["NVDY", "CONY", "TSLY", "AMZY", "QDTE", "XDTE", "JEPQ", "SCHD"]
 
   if scan_strategy == "Squeeze / Penny Stock Multiplier":
     st.sidebar.header("📁 Squeeze Asset Array")
@@ -436,6 +438,19 @@ if app_mode == "⚡ AlphaScan Engine":
         )
     )
     max_price_filter = 15.00
+  elif scan_strategy == "Channel Yield & Dividend Engine":
+    st.sidebar.header("📁 High-Yield Income Array")
+    div_input = st.sidebar.text_area(
+        "Income Screener Nodes:",
+        ", ".join(DEFAULT_DIVIDEND),
+        key="div_input_key",
+    )
+    tickers = list(
+        dict.fromkeys(
+            [t.strip().upper() for t in div_input.split(",") if t.strip()]
+        )
+    )
+    max_price_filter = 99999.0
   else:
     st.sidebar.header("📁 Core Matrix Framework")
     source_type = st.sidebar.radio(
@@ -487,78 +502,98 @@ if app_mode == "⚡ AlphaScan Engine":
 
   st.sidebar.write("---")
   st.sidebar.header("⚙️ Risk Parameters")
-  atr_period = st.sidebar.slider("ATR Lookback", 5, 30, 14, key="atr_period_key")
+  
+  if scan_strategy == "Channel Yield & Dividend Engine":
+    hma_lookback_period = st.sidebar.slider(
+        "HMA Lookback Period", 5, 50, 20, key="hma_div_period_key"
+    )
+    min_mom_threshold = st.sidebar.slider(
+        "Min Multi-Horizon Score for Buy", -4, 4, 2, key="div_mom_thresh"
+    )
+    buy_channel_max = st.sidebar.slider(
+        "Max 60D Channel Range for Buy (%)", 5, 35, 15, key="div_buy_chan"
+    )
+    sell_channel_min = st.sidebar.slider(
+        "Min 60D Channel Range for Exit (%)", 40, 90, 50, key="div_sell_chan"
+    )
+    atr_period = 14
+    exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
+    target_1_multiplier, target_2_multiplier = 1.5, 3.0
+    risk_multiplier = 1.5
+  else:
+    atr_period = st.sidebar.slider("ATR Lookback", 5, 30, 14, key="atr_period_key")
 
-  if scan_strategy == "Universal 4-HMA Trend-Following":
-    hma_trigger_mode = st.sidebar.radio(
-        "Hull Cross Confirmation Logic:",
-        [
-            "Execute on Cross Bar Close",
-            "Require Next-Day Confirmation Close",
-        ],
-        key="hma_trigger_mode_key",
-    )
-    hma_stop_mode = st.sidebar.selectbox(
-        "HMA Stop-Loss Mode:",
-        [
-            "Most Recent Red HMA Low",
-            "2nd Most Recent Red HMA Low",
-            "ATR Multiplier",
-        ],
-        key="hma_stop_mode_key",
-    )
-    risk_multiplier = (
-        st.sidebar.slider(
-            "Risk Envelope Scalar (ATR)",
-            0.5,
-            5.0,
-            1.5,
-            step=0.1,
-            key="risk_multiplier_key",
+    if scan_strategy == "Universal 4-HMA Trend-Following":
+      hma_trigger_mode = st.sidebar.radio(
+          "Hull Cross Confirmation Logic:",
+          [
+              "Execute on Cross Bar Close",
+              "Require Next-Day Confirmation Close",
+          ],
+          key="hma_trigger_mode_key",
+      )
+      hma_stop_mode = st.sidebar.selectbox(
+          "HMA Stop-Loss Mode:",
+          [
+              "Most Recent Red HMA Low",
+              "2nd Most Recent Red HMA Low",
+              "ATR Multiplier",
+          ],
+          key="hma_stop_mode_key",
+      )
+      risk_multiplier = (
+          st.sidebar.slider(
+              "Risk Envelope Scalar (ATR)",
+              0.5,
+              5.0,
+              1.5,
+              step=0.1,
+              key="risk_multiplier_key",
+          )
+          if hma_stop_mode == "ATR Multiplier"
+          else 1.5
+      )
+      st.sidebar.write("---")
+      exit_style = st.sidebar.radio(
+          "Select Exit Methodology:",
+          [
+              "Hybrid Scale-Out (Fixed Targets + Trail)",
+              "Pure Trailing Exit (No Fixed Targets)",
+          ],
+          key="exit_style_key",
+      )
+      if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)":
+        target_1_multiplier = st.sidebar.slider(
+            "Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key"
         )
-        if hma_stop_mode == "ATR Multiplier"
-        else 1.5
-    )
-    st.sidebar.write("---")
-    exit_style = st.sidebar.radio(
-        "Select Exit Methodology:",
-        [
-            "Hybrid Scale-Out (Fixed Targets + Trail)",
-            "Pure Trailing Exit (No Fixed Targets)",
-        ],
-        key="exit_style_key",
-    )
-    if exit_style == "Hybrid Scale-Out (Fixed Targets + Trail)":
+        target_2_multiplier = st.sidebar.slider(
+            "Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key"
+        )
+      else:
+        target_1_multiplier, target_2_multiplier = None, None
+    else:
+      exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
+      risk_multiplier = st.sidebar.slider(
+          "Risk Envelope Scalar (Stops)",
+          1.0,
+          4.0,
+          1.5,
+          step=0.1,
+          key="risk_multiplier_key",
+      )
+      st.sidebar.write("---")
       target_1_multiplier = st.sidebar.slider(
           "Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key"
       )
       target_2_multiplier = st.sidebar.slider(
           "Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key"
       )
-    else:
-      target_1_multiplier, target_2_multiplier = None, None
-  else:
-    exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
-    risk_multiplier = st.sidebar.slider(
-        "Risk Envelope Scalar (Stops)",
-        1.0,
-        4.0,
-        1.5,
-        step=0.1,
-        key="risk_multiplier_key",
-    )
-    st.sidebar.write("---")
-    target_1_multiplier = st.sidebar.slider(
-        "Alpha Target 1 (R:R)", 0.5, 5.0, 1.5, step=0.1, key="t1_mult_key"
-    )
-    target_2_multiplier = st.sidebar.slider(
-        "Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key"
-    )
 
   def scan_ticker(ticker_symbol):
     try:
-      df = yf.Ticker(ticker_symbol).history(period="250d", auto_adjust=False)
-      if df.empty or len(df) < 200:
+      yf_ticker = yf.Ticker(ticker_symbol)
+      df = yf_ticker.history(period="250d", auto_adjust=False)
+      if df.empty or len(df) < 60:
         return None
 
       df["SMA_50"] = df["Close"].rolling(window=50).mean()
@@ -600,6 +635,85 @@ if app_mode == "⚡ AlphaScan Engine":
 
       atr = latest["ATR"]
       risk_amount = risk_multiplier * atr
+
+      if scan_strategy == "Channel Yield & Dividend Engine":
+        info = yf_ticker.info
+        trailing_div_rate = info.get("trailingAnnualDividendRate", 0)
+        
+        if not trailing_div_rate and hasattr(yf_ticker, "dividends") and len(yf_ticker.dividends) > 0:
+          one_year_ago = datetime.now() - timedelta(days=365)
+          recent_divs = yf_ticker.dividends[yf_ticker.dividends.index >= one_year_ago.strftime("%Y-%m-%d")]
+          trailing_div_rate = float(recent_divs.sum()) if len(recent_divs) > 0 else 0.0
+
+        if price > 0 and trailing_div_rate > 0:
+          custom_value_score = price / (trailing_div_rate * 10)
+        else:
+          custom_value_score = np.nan
+
+        # 60D Channel Calculation
+        hist_60d = df.tail(60)
+        high_60d = hist_60d["High"].max()
+        low_60d = hist_60d["Low"].min()
+
+        if high_60d != low_60d:
+          channel_range_pct = ((price - low_60d) / (high_60d - low_60d)) * 100
+        else:
+          channel_range_pct = 50.0
+
+        # Custom HMA Slope Calculation
+        hma_custom = calculate_hma(df["Close"], period=hma_lookback_period)
+        current_hma_val = hma_custom.iloc[-1]
+        prev_hma_val = hma_custom.iloc[-2]
+        hma_slope_status = "Positive" if (current_hma_val - prev_hma_val) > 0 else "Negative"
+
+        # Signal Logic
+        if mhls >= min_mom_threshold and channel_range_pct <= buy_channel_max and hma_slope_status == "Positive":
+          signal = "🟢 BUY / ALLOCATE"
+        elif channel_range_pct >= sell_channel_min and hma_slope_status == "Negative":
+          signal = "🔴 EXIT / TRIM"
+        elif mhls <= -2:
+          signal = "⚠️ STRUCTURAL DOWN"
+        else:
+          signal = "🟡 HOLD / WATCH"
+
+        # Channel Boundaries
+        buy_max_p = low_60d + (high_60d - low_60d) * (buy_channel_max / 100.0)
+        sell_min_p = low_60d + (high_60d - low_60d) * (sell_channel_min / 100.0)
+
+        buy_range_str = f"${low_60d:.2f} - ${buy_max_p:.2f}"
+        hold_range_str = f"${buy_max_p:.2f} - ${sell_min_p:.2f}"
+        sell_range_str = f"${sell_min_p:.2f} - ${high_60d:.2f}"
+
+        stop_val = low_60d
+        t1_val = round(buy_max_p, 2)
+        t2_val = round(high_60d, 2)
+
+        return {
+            "Ticker": ticker_symbol,
+            "Last Close Price": round(price, 2),
+            "Dividend Per Share": round(trailing_div_rate, 2) if trailing_div_rate else 0.0,
+            "Custom Value Score": round(custom_value_score, 3) if not np.isnan(custom_value_score) else "N/A",
+            "Buy Range": buy_range_str,
+            "Hold Range": hold_range_str,
+            "Sell Range": sell_range_str,
+            "HMA": round(current_hma_val, 2),
+            "Signal": signal,
+            "Price": round(price, 2),
+            "MHLS": mhls,
+            "Score Weight": f"{int(score_weight_pct)}%",
+            "Score Weight Raw": score_weight_float,
+            "Ann Volatility %": round(ann_vol * 100, 2),
+            "Ann Volatility Raw": ann_vol,
+            "Calculated Stop": round(stop_val, 2),
+            "Stop Type": "60D Channel Low",
+            "Target 1": t1_val,
+            "Target 2": t2_val,
+            "50 SMA": round(latest["SMA_50"], 2),
+            "200 SMA": round(latest["SMA_200"], 2),
+            "RSI": round(latest["RSI"], 1),
+            "Compression Status": "N/A",
+        }
+
       ema_pinch = abs(latest["EMA_9"] - latest["EMA_21"]) / latest["EMA_21"]
       vol_spike = latest["Relative_Volume"]
       is_coiling = (
@@ -770,7 +884,7 @@ if app_mode == "⚡ AlphaScan Engine":
     buy_hits = len(scan_df[scan_df["Signal"].str.contains("🟢")])
     exit_hits = len(scan_df[scan_df["Signal"].str.contains("🔴")])
     hold_hits = len(scan_df[scan_df["Signal"].str.contains("🟡")])
-    neutral_hits = len(scan_df[scan_df["Signal"].str.contains("⚪")])
+    neutral_hits = len(scan_df[scan_df["Signal"].str.contains("⚪|⚠️")])
 
     st.markdown("### 🔍 **Scan Results Summary**")
     sc_col1, sc_col2, sc_col3, sc_col4, sc_col5 = st.columns(5)
@@ -781,20 +895,35 @@ if app_mode == "⚡ AlphaScan Engine":
     sc_col5.metric("⚪ Neutral / Cash", f"{neutral_hits} Hits")
 
     st.write("---")
-    display_columns = [
-        "Ticker",
-        "Price",
-        "MHLS",
-        "Score Weight",
-        "Ann Volatility %",
-        "Signal",
-        "Calculated Stop",
-        "Target 1",
-        "Target 2",
-        "50 SMA",
-        "200 SMA",
-        "RSI",
-    ]
+    
+    if scan_strategy == "Channel Yield & Dividend Engine":
+      display_columns = [
+          "Ticker",
+          "Last Close Price",
+          "Dividend Per Share",
+          "Custom Value Score",
+          "Buy Range",
+          "Hold Range",
+          "Sell Range",
+          "HMA",
+          "Signal",
+      ]
+    else:
+      display_columns = [
+          "Ticker",
+          "Price",
+          "MHLS",
+          "Score Weight",
+          "Ann Volatility %",
+          "Signal",
+          "Calculated Stop",
+          "Target 1",
+          "Target 2",
+          "50 SMA",
+          "200 SMA",
+          "RSI",
+      ]
+      
     st.dataframe(
         scan_df[display_columns], use_container_width=True, height=280
     )
@@ -905,6 +1034,15 @@ if app_mode == "⚡ AlphaScan Engine":
         cap_alloc = final_shares * budget_price_val
         port_weight = (cap_alloc / acc_balance) * 100 if acc_balance > 0 else 0
 
+        # Risk Metrics Calculations
+        per_share_risk = max(budget_price_val - stop_val, 0.0)
+        risk_pct = (
+            (per_share_risk / budget_price_val) * 100
+            if budget_price_val > 0
+            else 0.0
+        )
+        total_risk_dollars = per_share_risk * final_shares
+
         # Formatted Target Strings
         t1_str = (
             f"${ticker_data['Target 1']:.2f}"
@@ -973,6 +1111,8 @@ if app_mode == "⚡ AlphaScan Engine":
                     <div><b>Capital Alloc:</b> ${cap_alloc:,.2f}</div>
                     <div><b>Ann Volatility:</b> {ticker_data['Ann Volatility %']}%</div>
                     <div><b>Portfolio Weight:</b> {port_weight:.1f}%</div>
+                    <div><b>Trade Risk %:</b> <span style="color: #EF4444; font-weight: bold;">{risk_pct:.2f}%</span></div>
+                    <div><b>Total Dollar Risk:</b> <span style="color: #EF4444; font-weight: bold;">${total_risk_dollars:,.2f}</span></div>
                 </div>
             </div>
 
