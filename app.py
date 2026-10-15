@@ -405,28 +405,26 @@ if app_mode == "⚡ AlphaScan Engine":
                 df["UpperConfirm"] = df["ALMA"] + df["Dev"] * dev_mult
                 df["LowerConfirm"] = df["ALMA"] - df["Dev"] * dev_mult
 
-                # --- HISTORICAL FLIP STATE MACHINE (PINE SCRIPT EQUIVALENT) ---
-                trend_state = 0
-                last_flip_idx = None
-                last_flip_dir = 0
-
+                # --- ROBUST BACKWARD-WALKING TREND STATE MACHINE ---
+                states = []
+                current_trend = 0
                 for i in range(len(df)):
                     bs = df["SlopeScore"].iloc[i] > slope_min and df["Close"].iloc[i] > df["UpperConfirm"].iloc[i]
                     brs = df["SlopeScore"].iloc[i] < -slope_min and df["Close"].iloc[i] < df["LowerConfirm"].iloc[i]
+                    if bs:
+                        current_trend = 1
+                    elif brs:
+                        current_trend = -1
+                    states.append(current_trend)
 
-                    if trend_state != 1 and bs:
-                        trend_state = 1
-                        last_flip_idx = i
-                        last_flip_dir = 1
-                    elif trend_state != -1 and brs:
-                        trend_state = -1
-                        last_flip_idx = i
-                        last_flip_dir = -1
+                present_trend = states[-1] if len(states) > 0 else 1
+                last_flip_idx = len(df) - 1
+                for i in range(len(df) - 1, -1, -1):
+                    if states[i] != present_trend:
+                        last_flip_idx = i + 1
+                        break
 
-                # Fallback if no flip detected in window
-                if last_flip_idx is None:
-                    last_flip_idx = len(df) - 1
-                    last_flip_dir = 1 if df["Close"].iloc[-1] >= df["ALMA"].iloc[-1] else -1
+                last_flip_dir = present_trend if present_trend != 0 else 1
 
                 flip_date = df.index[last_flip_idx]
                 if isinstance(flip_date, pd.Timestamp):
@@ -437,7 +435,6 @@ if app_mode == "⚡ AlphaScan Engine":
                 entry_price = df["Close"].iloc[last_flip_idx]
                 entry_atr = df["ATR"].iloc[last_flip_idx]
 
-                # Stop loss derived from swing structure prior to or at flip bar, clamped by ATR
                 low_win = df["Low"].iloc[max(0, last_flip_idx - stop_lookback):last_flip_idx + 1].min()
                 high_win = df["High"].iloc[max(0, last_flip_idx - stop_lookback):last_flip_idx + 1].max()
 
@@ -683,7 +680,6 @@ if app_mode == "⚡ AlphaScan Engine":
                 )
                 ticker_data = filtered_calc_df[filtered_calc_df["Ticker"] == calc_ticker].iloc[0]
 
-                # Use historical Entry Price if available (Alma Strategy), otherwise current price
                 budget_price_val = float(ticker_data["Entry Price"]) if "Entry Price" in ticker_data else float(ticker_data["Price"])
                 stop_val = float(ticker_data["Calculated Stop"])
 
