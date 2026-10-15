@@ -297,7 +297,7 @@ if app_mode == "⚡ AlphaScan Engine":
         stop_lookback = st.sidebar.slider("Stop Structure Lookback", 3, 50, 12, key="stop_lb_key")
         min_stop_atr = st.sidebar.slider("Minimum Stop ATR", 0.25, 3.0, 0.75, 0.05, key="min_stop_atr_key")
         max_stop_atr = st.sidebar.slider("Maximum Stop ATR", 1.0, 8.0, 3.0, 0.25, key="max_stop_atr_key")
-        max_pyramid_units = st.sidebar.slider("Max Pyramid Units (N)", 1, 5, 4, key="pyramid_units_key")
+        max_pyramid_units = st.sidebar.slider("Max Pyramid Units (N)", 1, 5, 4, key="sidebar_pyramid_units_key")
         pyramid_spacing_r = st.sidebar.slider("Pyramid Spacing (R-Multiple)", 0.25, 1.0, 0.5, 0.05, key="pyramid_space_key")
         exit_style = "Hybrid Scale-Out (Fixed Targets + Trail)"
         target_1_multiplier, target_2_multiplier = 1.5, 3.0
@@ -405,45 +405,67 @@ if app_mode == "⚡ AlphaScan Engine":
                 df["UpperConfirm"] = df["ALMA"] + df["Dev"] * dev_mult
                 df["LowerConfirm"] = df["ALMA"] - df["Dev"] * dev_mult
 
-                latest_alma = df["ALMA"].iloc[-1]
-                latest_slope = df["SlopeScore"].iloc[-1]
-                latest_upper = df["UpperConfirm"].iloc[-1]
-                latest_lower = df["LowerConfirm"].iloc[-1]
+                # --- HISTORICAL FLIP STATE MACHINE (PINE SCRIPT EQUIVALENT) ---
+                trend_state = 0
+                last_flip_idx = None
+                last_flip_dir = 0
 
-                bull_setup = latest_slope > slope_min and price > latest_upper
-                bear_setup = latest_slope < -slope_min and price < latest_lower
+                for i in range(len(df)):
+                    bs = df["SlopeScore"].iloc[i] > slope_min and df["Close"].iloc[i] > df["UpperConfirm"].iloc[i]
+                    brs = df["SlopeScore"].iloc[i] < -slope_min and df["Close"].iloc[i] < df["LowerConfirm"].iloc[i]
 
-                if bull_setup:
-                    signal = "🟢 BULLISH ALMA SETUP"
-                elif bear_setup:
-                    signal = "🔴 BEARISH ALMA SETUP"
+                    if trend_state != 1 and bs:
+                        trend_state = 1
+                        last_flip_idx = i
+                        last_flip_dir = 1
+                    elif trend_state != -1 and brs:
+                        trend_state = -1
+                        last_flip_idx = i
+                        last_flip_dir = -1
+
+                # Fallback if no flip detected in window
+                if last_flip_idx is None:
+                    last_flip_idx = len(df) - 1
+                    last_flip_dir = 1 if df["Close"].iloc[-1] >= df["ALMA"].iloc[-1] else -1
+
+                flip_date = df.index[last_flip_idx]
+                if isinstance(flip_date, pd.Timestamp):
+                    flip_date_str = flip_date.strftime("%Y-%m-%d")
                 else:
-                    signal = "🟡 ALMA CONSOLIDATING"
+                    flip_date_str = str(flip_date).split()[0]
 
-                recent_low = df["Low"].iloc[-stop_lookback:].min()
-                recent_high = df["High"].iloc[-stop_lookback:].max()
+                entry_price = df["Close"].iloc[last_flip_idx]
+                entry_atr = df["ATR"].iloc[last_flip_idx]
 
-                raw_risk = price - recent_low if bull_setup or price >= latest_alma else recent_high - price
-                min_risk = atr * min_stop_atr
-                max_risk = atr * max_stop_atr
+                # Stop loss derived from swing structure prior to or at flip bar, clamped by ATR
+                low_win = df["Low"].iloc[max(0, last_flip_idx - stop_lookback):last_flip_idx + 1].min()
+                high_win = df["High"].iloc[max(0, last_flip_idx - stop_lookback):last_flip_idx + 1].max()
+
+                raw_risk = entry_price - low_win if last_flip_dir == 1 else high_win - entry_price
+                min_risk = entry_atr * min_stop_atr
+                max_risk = entry_atr * max_stop_atr
                 risk_dist = min(max(raw_risk, min_risk), max_risk)
 
-                stop_val = price - risk_dist if (bull_setup or signal != "🔴 BEARISH ALMA SETUP") else price + risk_dist
-                
-                t1_val = round(price + risk_dist * 1.0, 2)
-                t2_val = round(price + risk_dist * 2.0, 2)
-                t3_val = round(price + risk_dist * 3.0, 2)
-                t4_val = round(price + risk_dist * 4.0, 2)
+                stop_val = entry_price - risk_dist if last_flip_dir == 1 else entry_price + risk_dist
+
+                t1_val = round(entry_price + last_flip_dir * risk_dist * 1.0, 2)
+                t2_val = round(entry_price + last_flip_dir * risk_dist * 2.0, 2)
+                t3_val = round(entry_price + last_flip_dir * risk_dist * 3.0, 2)
+                t4_val = round(entry_price + last_flip_dir * risk_dist * 4.0, 2)
+
+                signal_label = "🟢 BULLISH FLIP" if last_flip_dir == 1 else "🔴 BEARISH FLIP"
 
                 return {
                     "Ticker": ticker_symbol,
                     "Price": round(price, 2),
-                    "ALMA": round(latest_alma, 2),
-                    "Slope Score": round(latest_slope, 3),
+                    "Flip Date": flip_date_str,
+                    "Entry Price": round(entry_price, 2),
+                    "ALMA": round(df["ALMA"].iloc[-1], 2),
+                    "Slope Score": round(df["SlopeScore"].iloc[-1], 3),
                     "ATR ($)": round(atr, 2),
-                    "Signal": signal,
+                    "Signal": signal_label,
                     "Calculated Stop": round(stop_val, 2),
-                    "Stop Type": "Structure + ATR Clamp",
+                    "Stop Type": f"Structure ({flip_date_str})",
                     "Target 1": t1_val,
                     "Target 2": t2_val,
                     "Target 3": t3_val,
@@ -624,8 +646,8 @@ if app_mode == "⚡ AlphaScan Engine":
             ]
         elif scan_strategy == "Alma Targets & Turtle Pyramiding":
             display_columns = [
-                "Ticker", "Price", "ALMA", "Slope Score", "ATR ($)", 
-                "Signal", "Calculated Stop", "Target 1", "Target 2", "Target 3", "Target 4", "MHLS"
+                "Ticker", "Price", "Flip Date", "Entry Price", "ALMA", "Slope Score", 
+                "Signal", "Calculated Stop", "Target 1", "Target 2", "Target 3", "Target 4"
             ]
         else:
             display_columns = [
@@ -661,14 +683,15 @@ if app_mode == "⚡ AlphaScan Engine":
                 )
                 ticker_data = filtered_calc_df[filtered_calc_df["Ticker"] == calc_ticker].iloc[0]
 
-                budget_price_val = float(ticker_data["Price"])
+                # Use historical Entry Price if available (Alma Strategy), otherwise current price
+                budget_price_val = float(ticker_data["Entry Price"]) if "Entry Price" in ticker_data else float(ticker_data["Price"])
                 stop_val = float(ticker_data["Calculated Stop"])
 
                 st.markdown("#### **Turtle Pyramiding & Sizing Parameters**")
                 acc_balance = st.number_input("Total Portfolio Value ($)", min_value=100.0, value=100000.0, step=5000.0)
                 avail_cash = st.number_input("Available Liquid Cash ($)", min_value=0.0, value=50000.0, step=5000.0)
                 turtle_risk_pct = st.slider("Turtle Account Risk Per Unit (%)", 0.5, 3.0, 1.0, 0.25) / 100.0
-                pyramid_units = st.slider("Max Pyramid Units (N)", 1, 5, 4, key="pyramid_units_key")
+                pyramid_units = st.slider("Max Pyramid Units (N)", 1, 5, 4, key="calc_pyramid_units_key")
             else:
                 calc_ticker = None
 
@@ -683,18 +706,18 @@ if app_mode == "⚡ AlphaScan Engine":
                 port_weight = (cap_alloc / acc_balance) * 100 if acc_balance > 0 else 0
                 total_risk_dollars = per_share_risk * shares_per_unit
 
-                # SAFE TYPE CHECKING FOR TARGET STRINGS TO PREVENT FORMATTING ERRORS
                 t1_str = f"${ticker_data['Target 1']:.2f}" if isinstance(ticker_data.get('Target 1'), (int, float)) else str(ticker_data.get('Target 1', 'N/A'))
                 t2_str = f"${ticker_data['Target 2']:.2f}" if isinstance(ticker_data.get('Target 2'), (int, float)) else str(ticker_data.get('Target 2', 'N/A'))
                 t3_str = f"${ticker_data['Target 3']:.2f}" if isinstance(ticker_data.get('Target 3'), (int, float)) else str(ticker_data.get('Target 3', 'N/A'))
                 t4_str = f"${ticker_data['Target 4']:.2f}" if isinstance(ticker_data.get('Target 4'), (int, float)) else str(ticker_data.get('Target 4', 'N/A'))
+                flip_date_display = ticker_data.get('Flip Date', 'N/A') if scan_strategy == "Alma Targets & Turtle Pyramiding" else "Live Scan"
 
                 trade_card_html = f"""
                 <div style="background-color: {metric_bg}; border: 2px solid {border_color}; border-radius: 12px; padding: 24px; font-family: {font_family}; color: {text_main}; margin-top: 10px;">
                     
                     <div style="text-align: center; border-bottom: 2px solid {border_color}; padding-bottom: 12px; margin-bottom: 16px;">
                         <h1 style="margin: 0; font-size: 38px; font-weight: 800; letter-spacing: 2px;">{calc_ticker} (TURTLE PYRAMID)</h1>
-                        <span style="font-size: 13px; font-weight: bold; background: {border_color}; color: #000; padding: 3px 10px; border-radius: 4px; display: inline-block; margin-top: 6px;">{ticker_data['Signal']}</span>
+                        <span style="font-size: 13px; font-weight: bold; background: {border_color}; color: #000; padding: 3px 10px; border-radius: 4px; display: inline-block; margin-top: 6px;">{ticker_data['Signal']} | Flip Date: {flip_date_display}</span>
                     </div>
 
                     <div style="background: rgba(255,255,255,0.05); border-bottom: 2px solid {border_color}; padding: 14px; text-align: center; margin-bottom: 16px; border-radius: 8px;">
@@ -703,8 +726,8 @@ if app_mode == "⚡ AlphaScan Engine":
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; border-bottom: 2px solid {border_color}; padding-bottom: 16px; margin-bottom: 16px; text-align: center;">
-                        <div style="background: rgba(16, 185, 129, 0.1); padding: 10px; border-radius: 6px; border: 10px solid #10B981;">
-                            <div style="font-size: 11px; opacity: 0.8; font-weight: bold; color: #10B981;">BUY / ENTRY</div>
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 10px; border-radius: 6px; border: 1px solid #10B981;">
+                            <div style="font-size: 11px; opacity: 0.8; font-weight: bold; color: #10B981;">ENTRY PRICE</div>
                             <div style="font-size: 18px; font-weight: bold;">${budget_price_val:.2f}</div>
                         </div>
                         <div style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 6px; border: 1px solid #EF4444;">
@@ -754,7 +777,7 @@ if app_mode == "⚡ AlphaScan Engine":
                         line=dict(color="#00FFFF", width=2),
                         name="ALMA Baseline"
                     ))
-                    fig.add_hline(y=budget_price_val, line_dash="solid", line_color="#10B981", annotation_text=f"Entry: ${budget_price_val:.2f}")
+                    fig.add_hline(y=budget_price_val, line_dash="solid", line_color="#10B981", annotation_text=f"Entry ({flip_date_display}): ${budget_price_val:.2f}")
                     fig.add_hline(y=stop_val, line_dash="dash", line_color="#EF4444", annotation_text=f"Stop Loss: ${stop_val:.2f}")
                     if 'Target 1' in ticker_data and isinstance(ticker_data['Target 1'], (int, float)):
                         fig.add_hline(y=ticker_data['Target 1'], line_dash="dot", line_color="#3B82F6", annotation_text="T1 (1R)")
