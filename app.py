@@ -21,10 +21,7 @@ st.set_page_config(
 # --- SECTION 1: PRIVATE APP SECURITY ---
 # ==========================================
 def check_password():
-    """Returns True if the user has entered the correct application passcode.
-
-    Enforces private authentication via Streamlit secrets or default fallback.
-    """
+    """Returns True if the user has entered the correct application passcode."""
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
 
@@ -34,7 +31,6 @@ def check_password():
             "Enter Passcode:", type="password", key="app_pass_input"
         )
 
-        # Retrieve passcode from secure secrets environment or fall back
         APP_PASSCODE = st.secrets.get("APP_PASSCODE", "MyTradingApp2026!")
 
         if st.button("Unlock Dashboard"):
@@ -60,7 +56,6 @@ app_mode = st.sidebar.radio(
     ],
 )
 
-# Interface Theme Customization Workspace
 theme_choice = st.sidebar.selectbox(
     "Select UI Theme Workspace:",
     [
@@ -126,7 +121,6 @@ st.html(header_html)
 # --- SECTION 3: MATHEMATICAL INDICATOR SUITE ---
 # ==========================================
 def calculate_wma(series, length):
-    """Calculates Weighted Moving Average over the specified window."""
     weights = np.arange(1, length + 1)
     return series.rolling(length).apply(
         lambda w: np.dot(w, weights) / weights.sum(), raw=True
@@ -134,7 +128,6 @@ def calculate_wma(series, length):
 
 
 def calculate_hma(series, length=20):
-    """Thinkorswim-aligned Hull Moving Average calculation using rounded integer square root."""
     half_length = int(length / 2)
     sqrt_length = int(np.round(np.sqrt(length)))
     wma_half = calculate_wma(series, half_length)
@@ -144,7 +137,6 @@ def calculate_hma(series, length=20):
 
 
 def calculate_alma(series, length=34, offset=0.85, sigma=6.0):
-    """Arnaud Legoux Moving Average (ALMA) calculation matching TradingView parameters."""
     m = int(offset * (length - 1))
     s = length / sigma
     weights = np.exp(-((np.arange(length) - m) ** 2) / (2 * s**2))
@@ -155,12 +147,11 @@ def calculate_alma(series, length=34, offset=0.85, sigma=6.0):
 
 
 def calculate_mhls_and_volatility(df):
-    """Calculates Multi-Horizon Lookback Score (MHLS), Score Weight, and Annualized Volatility."""
     if len(df) < 43:
         return 0, 0.0, 0.0, 0.0
 
     current_close = df["Close"].iloc[-1]
-    lookbacks = [5, 10, 21, 42]  # 1w, 2w, 1m, 2m horizons
+    lookbacks = [5, 10, 21, 42]
     mhls = 0
 
     for lb in lookbacks:
@@ -197,7 +188,6 @@ if app_mode == "⚡ AlphaScan Engine":
         key="strategy_choice",
     )
 
-    # Consolidated Universe Arrays
     FULL_SP500 = [
         "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "BRK-B", "LLY", "AVGO",
         "JPM", "TSLA", "WMT", "XOM", "UNH", "V", "PG", "MA", "ORCL", "COST", "HD",
@@ -359,7 +349,6 @@ if app_mode == "⚡ AlphaScan Engine":
             target_2_multiplier = st.sidebar.slider("Alpha Target 2 (R:R)", 1.0, 10.0, 3.0, step=0.1, key="t2_mult_key")
 
     def scan_ticker(ticker_symbol):
-        """Scans individual tickers based on the active scanning framework and technical indicators."""
         try:
             yf_ticker = yf.Ticker(ticker_symbol)
             df = yf_ticker.history(period="250d", auto_adjust=False)
@@ -694,10 +683,11 @@ if app_mode == "⚡ AlphaScan Engine":
                 port_weight = (cap_alloc / acc_balance) * 100 if acc_balance > 0 else 0
                 total_risk_dollars = per_share_risk * shares_per_unit
 
-                t1_str = f"${ticker_data['Target 1']:.2f}" if 'Target 1' in ticker_data else "N/A"
-                t2_str = f"${ticker_data['Target 2']:.2f}" if 'Target 2' in ticker_data else "N/A"
-                t3_str = f"${ticker_data['Target 3']:.2f}" if 'Target 3' in ticker_data else "N/A"
-                t4_str = f"${ticker_data['Target 4']:.2f}" if 'Target 4' in ticker_data else "N/A"
+                # SAFE TYPE CHECKING FOR TARGET STRINGS TO PREVENT FORMATTING ERRORS
+                t1_str = f"${ticker_data['Target 1']:.2f}" if isinstance(ticker_data.get('Target 1'), (int, float)) else str(ticker_data.get('Target 1', 'N/A'))
+                t2_str = f"${ticker_data['Target 2']:.2f}" if isinstance(ticker_data.get('Target 2'), (int, float)) else str(ticker_data.get('Target 2', 'N/A'))
+                t3_str = f"${ticker_data['Target 3']:.2f}" if isinstance(ticker_data.get('Target 3'), (int, float)) else str(ticker_data.get('Target 3', 'N/A'))
+                t4_str = f"${ticker_data['Target 4']:.2f}" if isinstance(ticker_data.get('Target 4'), (int, float)) else str(ticker_data.get('Target 4', 'N/A'))
 
                 trade_card_html = f"""
                 <div style="background-color: {metric_bg}; border: 2px solid {border_color}; border-radius: 12px; padding: 24px; font-family: {font_family}; color: {text_main}; margin-top: 10px;">
@@ -713,7 +703,7 @@ if app_mode == "⚡ AlphaScan Engine":
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; border-bottom: 2px solid {border_color}; padding-bottom: 16px; margin-bottom: 16px; text-align: center;">
-                        <div style="background: rgba(16, 185, 129, 0.1); padding: 10px; border-radius: 6px; border: 1px solid #10B981;">
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 10px; border-radius: 6px; border: 10px solid #10B981;">
                             <div style="font-size: 11px; opacity: 0.8; font-weight: bold; color: #10B981;">BUY / ENTRY</div>
                             <div style="font-size: 18px; font-weight: bold;">${budget_price_val:.2f}</div>
                         </div>
@@ -766,10 +756,13 @@ if app_mode == "⚡ AlphaScan Engine":
                     ))
                     fig.add_hline(y=budget_price_val, line_dash="solid", line_color="#10B981", annotation_text=f"Entry: ${budget_price_val:.2f}")
                     fig.add_hline(y=stop_val, line_dash="dash", line_color="#EF4444", annotation_text=f"Stop Loss: ${stop_val:.2f}")
-                    if 'Target 1' in ticker_data:
+                    if 'Target 1' in ticker_data and isinstance(ticker_data['Target 1'], (int, float)):
                         fig.add_hline(y=ticker_data['Target 1'], line_dash="dot", line_color="#3B82F6", annotation_text="T1 (1R)")
+                    if 'Target 2' in ticker_data and isinstance(ticker_data['Target 2'], (int, float)):
                         fig.add_hline(y=ticker_data['Target 2'], line_dash="dot", line_color="#3B82F6", annotation_text="T2 (2R)")
+                    if 'Target 3' in ticker_data and isinstance(ticker_data['Target 3'], (int, float)):
                         fig.add_hline(y=ticker_data['Target 3'], line_dash="dot", line_color="#A855F7", annotation_text="T3 (3R)")
+                    if 'Target 4' in ticker_data and isinstance(ticker_data['Target 4'], (int, float)):
                         fig.add_hline(y=ticker_data['Target 4'], line_dash="dot", line_color="#A855F7", annotation_text="T4 (4R)")
 
                     fig.update_layout(
